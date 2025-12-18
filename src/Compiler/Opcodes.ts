@@ -1,0 +1,61 @@
+import { TokenPosition } from '../Tokenizer/index.js';
+
+export enum Opcode {
+    HALT   = 'HALT',   // Stop execution
+    CONST  = 'CONST',  // Push a value onto the stack
+
+    // Arithmetic
+    ADD    = 'ADD',
+    SUB    = 'SUB',
+    MUL    = 'MUL',
+    DIV    = 'DIV',
+    NEG    = 'NEG',
+
+    // Comparison
+    EQ     = 'EQ',
+    NEQ    = 'NEQ',
+    GT     = 'GT',
+    GTE    = 'GTE',
+    LT     = 'LT',
+    LTE    = 'LTE',
+
+    // Logical
+    NOT    = 'NOT',
+
+    // Logic
+    JMP          = 'JMP',          // Unconditional Jump
+    JMP_IF_FALSE = 'JMP_IF_FALSE', // Jump if top of stack is false
+    JMP_IF_TRUE = 'JMP_IF_TRUE',   // Jump if top is true (pops value)
+    DUP         = 'DUP',           // Duplicate top value (A -> A, A)
+    POP         = 'POP',           // Discard top value (A -> )
+
+    // Variables
+    LOAD   = 'LOAD',   // Load variable value onto stack
+    STORE  = 'STORE',  // Store top of stack into variable
+
+    // Functions
+    CALL   = 'CALL',
+    RET    = 'RET',
+
+    // Collections
+    MAKE_ARRAY  = 'MAKE_ARRAY',  // Stack: [arg1, arg2...] -> Array
+    MAKE_OBJECT = 'MAKE_OBJECT', // Stack: [key1, val1...] -> Object
+
+    // Property Access
+    GET_PROP    = 'GET_PROP',    // Stack: [Object, Key] -> [Value]
+    SET_PROP    = 'SET_PROP',    // Stack: [Object, Key, Value] -> [Value]
+
+    // Iteration
+    ITER_INIT   = 'ITER_INIT',   // Stack: [Array] -> [Iterator]
+    ITER_NEXT   = 'ITER_NEXT',   // Stack: [Iterator] -> [Value] (or Jump if done)
+
+    // System
+    PRINT  = 'PRINT',  // For debugging
+}
+
+export interface Instruction {
+    op: Opcode;
+    arg?: any;        // The payload (e.g., the number 5, the string "x", or a jump address)
+    comment?: string; // Helper for readability when printing ASM
+    pos?: TokenPosition;
+}

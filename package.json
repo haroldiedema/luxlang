@@ -1,0 +1,29 @@
+{
+  "name": "luxlang",
+  "description": "Lux Language Compiler and Runtime",
+  "license": "MIT",
+  "keywords": [
+    "compiler",
+    "language",
+    "runtime",
+    "lux"
+  ],
+  "version": "1.0.0",
+  "author": {
+    "name": "Harold Iedema",
+    "email": "harold@iedema.me",
+    "url": "https://github.com/haroldiedema"
+  },
+  "homepage": "https://github.com/haroldiedema/lux-lang",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}

@@ -1,0 +1,6 @@
+.idea/
+node_modules/
+__snapshots__/
+dist/
+.env
+.DS_Store
