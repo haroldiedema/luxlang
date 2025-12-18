@@ -5,6 +5,11 @@ export class Parser
 {
     private stream: TokenStream;
 
+    public static parse(tokens: TokenStream): AST.Program
+    {
+        return new Parser(tokens).parse();
+    }
+
     constructor(stream: TokenStream)
     {
         this.stream = stream;

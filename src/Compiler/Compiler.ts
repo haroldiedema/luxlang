@@ -1,7 +1,8 @@
 // Compiler.ts
-import * as AST                from '../Parser/AST.js';
-import { TokenPosition }       from '../Tokenizer/index.js';
-import { Instruction, Opcode } from './Opcodes.js';
+import * as AST                     from '../Parser/AST.js';
+import { Parser }                   from '../Parser/index.js';
+import { Tokenizer, TokenPosition } from '../Tokenizer/index.js';
+import { Instruction, Opcode }      from './Opcodes.js';
 
 export class Compiler
 {
@@ -9,6 +10,14 @@ export class Compiler
     private functionRegistry: Map<string, number> = new Map();
     private loopStack: LoopContext[]              = [];
     private currentPos: TokenPosition | null      = null;
+
+    public static compile(source: string): Instruction[]
+    {
+        const tokens = Tokenizer.tokenize(source);
+        const ast = Parser.parse(tokens);
+
+        return new Compiler().compile(ast);
+    }
 
     public compile(program: AST.Program): Instruction[]
     {
