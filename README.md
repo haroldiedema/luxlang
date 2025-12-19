@@ -6,11 +6,14 @@ It features a **Bytecode Virtual Machine (VM)** with a "Tick Budget" system, all
 
 ## ✨ Features
 
+* **Sandboxed:** Runs in a secure VM, isolated from host environment.
+* **Lightweight:** Zero runtime dependencies.
 * **Python-like Syntax:** Clean, readable, indentation-based structure.
 * **Time-Sliced Execution:** Run scripts for `N` instructions per frame.
 * **First-Class Data:** Native support for Arrays `[]` and Objects `{}`.
 * **Native Interop:** Easily bind TypeScript/JavaScript functions to the VM.
 * **Safe Scoping:** Variables are function-scoped; no accidental global leaks.
+* **State Persistence:** VM state can be imported & exported.
 
 ---
 
