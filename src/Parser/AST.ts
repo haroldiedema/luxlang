@@ -1,10 +1,10 @@
-import { TokenPosition } from '../Tokenizer/index.js';
+import {TokenPosition} from '../Tokenizer/index.js';
 
 export type NodeType =
-    | 'Program' | 'Block' | 'FunctionDeclaration' | 'IfStatement' | 'ReturnStatement'
+    | 'Program' | 'Block' | 'FunctionDeclaration' | 'MethodDefinition' | 'IfStatement' | 'ReturnStatement'
     | 'ExpressionStatement' | 'AssignmentExpression' | 'BinaryExpression' | 'LogicalExpression' | 'UnaryExpression'
     | 'CallExpression' | 'MemberExpression' | 'ArrayExpression' | 'ObjectExpression' | 'Property'
-    | 'Identifier' | 'Literal' | 'ForStatement' | 'BreakStatement' | 'ContinueStatement';
+    | 'Identifier' | 'Literal' | 'ForStatement' | 'BreakStatement' | 'ContinueStatement' | 'ThisExpression';
 
 export interface BaseStmt
 {
@@ -34,6 +34,15 @@ export interface FunctionDeclaration extends BaseStmt
 {
     type: 'FunctionDeclaration';
     name: Identifier;
+    params: Identifier[];
+    body: Block;
+}
+
+export interface MethodDefinition extends BaseStmt
+{
+    type: 'MethodDefinition';
+    objectName: Identifier;
+    methodName: string;
     params: Identifier[];
     body: Block;
 }
@@ -139,6 +148,11 @@ export interface Identifier extends BaseExpr
     value: string;
 }
 
+export interface ThisExpression extends BaseExpr
+{
+    type: 'ThisExpression';
+}
+
 export interface Literal extends BaseExpr
 {
     type: 'Literal';
@@ -158,6 +172,7 @@ export type Stmt =
     Program
     | Block
     | FunctionDeclaration
+    | MethodDefinition
     | IfStatement
     | ReturnStatement
     | ExpressionStatement
@@ -175,4 +190,5 @@ export type Expr =
     | ArrayExpression
     | ObjectExpression
     | Identifier
-    | Literal;
+    | Literal
+    | ThisExpression;

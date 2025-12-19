@@ -1,7 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { Tokenizer }            from '../../dist/Tokenizer/index.js';
-import { Parser }               from '../../dist/Parser/Parser.js';
-import type * as AST            from '../../dist/Parser/AST.js';
+import {describe, expect, it} from 'vitest';
+import {Parser, Tokenizer}    from '../../dist/index.js';
+import type * as AST          from '../../dist/Parser/AST.js';
 
 describe('Parser', () => {
 
@@ -103,9 +102,9 @@ fn check:
 describe('Parser - Arrays and Objects', () => {
     it('should parse array declaration', () => {
         // Source: myArray = [1, "foo", true]
-        const source = `myArray = [1, "foo", true]`;
-        const tokens = Tokenizer.tokenize(source);
-        const parser = new Parser(tokens);
+        const source  = `myArray = [1, "foo", true]`;
+        const tokens  = Tokenizer.tokenize(source);
+        const parser  = new Parser(tokens);
         const program = parser.parse();
 
         const assign = (program.body[0] as AST.ExpressionStatement).expression as AST.AssignmentExpression;
@@ -123,13 +122,13 @@ describe('Parser - Arrays and Objects', () => {
 
     it('should parse array access', () => {
         // Source: print(myArray[1])
-        const source = `print(myArray[1])`;
-        const tokens = Tokenizer.tokenize(source);
-        const parser = new Parser(tokens);
+        const source  = `print(myArray[1])`;
+        const tokens  = Tokenizer.tokenize(source);
+        const parser  = new Parser(tokens);
         const program = parser.parse();
 
         const call = (program.body[0] as AST.ExpressionStatement).expression as AST.CallExpression;
-        const arg = call.arguments[0] as AST.MemberExpression;
+        const arg  = call.arguments[0] as AST.MemberExpression;
 
         expect(arg.type).toBe('MemberExpression');
         expect(arg.computed).toBe(true); // Bracket notation = computed
@@ -139,12 +138,12 @@ describe('Parser - Arrays and Objects', () => {
 
     it('should parse object declaration', () => {
         // Source: myObject = {foo: 42}
-        const source = `myObject = {foo: 42}`;
-        const tokens = Tokenizer.tokenize(source);
-        const parser = new Parser(tokens);
+        const source  = `myObject = {foo: 42}`;
+        const tokens  = Tokenizer.tokenize(source);
+        const parser  = new Parser(tokens);
         const program = parser.parse();
 
-        const assign = (program.body[0] as AST.ExpressionStatement).expression as AST.AssignmentExpression;
+        const assign  = (program.body[0] as AST.ExpressionStatement).expression as AST.AssignmentExpression;
         const objNode = assign.right as AST.ObjectExpression;
 
         expect(objNode.type).toBe('ObjectExpression');
@@ -154,12 +153,12 @@ describe('Parser - Arrays and Objects', () => {
     });
 
     it('should parse object access (dot notation)', () => {
-        const source = `print(myObject.foo)`;
-        const tokens = Tokenizer.tokenize(source);
-        const parser = new Parser(tokens);
+        const source  = `print(myObject.foo)`;
+        const tokens  = Tokenizer.tokenize(source);
+        const parser  = new Parser(tokens);
         const program = parser.parse();
 
-        const call = (program.body[0] as AST.ExpressionStatement).expression as AST.CallExpression;
+        const call   = (program.body[0] as AST.ExpressionStatement).expression as AST.CallExpression;
         const member = call.arguments[0] as AST.MemberExpression;
 
         expect(member.type).toBe('MemberExpression');
@@ -169,8 +168,8 @@ describe('Parser - Arrays and Objects', () => {
     });
 
     it('should parse complex chaining', () => {
-        const source = `data[0].users.get(1)`;
-        const parser = new Parser(Tokenizer.tokenize(source));
+        const source  = `data[0].users.get(1)`;
+        const parser  = new Parser(Tokenizer.tokenize(source));
         const program = parser.parse();
 
         // This is a deep structure, let's verify top-down

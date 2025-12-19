@@ -1,19 +1,38 @@
-import { Instruction, Opcode } from '../Compiler/Opcodes.js';
+import {Printer}               from '../Compiler/index.js';
+import {Instruction, Opcode}   from '../Compiler/Opcodes.js';
+import {Deserializer}          from './Deserializer.js';
+import {InstructionSet}        from './InstructionSet.js';
+import {Serializer}            from './Serializer.js';
+import {State}                 from './State.js';
+import {VirtualMachineOptions} from './VirtualMachineOptions.js';
 
-export class VirtualMachine
+export class VirtualMachine extends InstructionSet
 {
-    private readonly instructions: Instruction[];
-    private readonly natives: Map<string, Function> = new Map();
+    protected readonly instructions: Instruction[];
+    protected readonly natives: Map<string, Function> = new Map();
 
-    private ip: number                = 0;  // Instruction Pointer
-    private stack: any[]              = []; // Operand Stack
-    private frames: StackFrame[]      = []; // Call Stack
-    private globals: Map<string, any> = new Map();
-    private isHalted: boolean         = false;
+    protected state: State;
+    protected throwOnError: boolean;
 
-    constructor(bytecode: Instruction[])
+    private readonly options: VirtualMachineOptions;
+    private readonly serializer: Serializer;
+    private readonly deserializer: Deserializer;
+
+    constructor(bytecode: Instruction[], options: VirtualMachineOptions = {})
     {
+        super();
+
+        this.options      = options;
+        this.serializer   = new Serializer();
+        this.deserializer = new Deserializer();
+
         this.instructions = bytecode;
+        this.state        = new State(options.variables ?? {});
+        this.throwOnError = options.throwOnError ?? false;
+
+        for (const [name, fn] of Object.entries(options.functions ?? {})) {
+            this.registerNative(name, fn);
+        }
     }
 
     /**
@@ -35,332 +54,84 @@ export class VirtualMachine
     public run(budget: number = 1000): boolean
     {
         try {
-            return this.runInternal(budget);
+            return this.execute(budget);
         } catch (e) {
             this.handleError(e as Error);
             return true; // Halt on error
         }
     }
 
-    private runInternal(budget: number): boolean
+    /**
+     * Saves the current state of the VM to a string.
+     *
+     * @returns {string}
+     */
+    public save(): string
     {
-        if (this.isHalted) return true;
+        return this.serializer.serialize(this.romHash, this.state);
+    }
 
-        let opsConsumed = 0;
+    /**
+     * Restores the VM state from a string.
+     *
+     * @param {string} state
+     */
+    public load(state: string): void
+    {
+        this.deserializer.deserialize(this.romHash, state, this.state);
+    }
 
-        while (opsConsumed < budget && this.ip < this.instructions.length) {
-            const instr = this.instructions[this.ip];
+    /**
+     * Returns a ROM hash based on the loaded instructions.
+     *
+     * @returns {string}
+     */
+    public get romHash(): string
+    {
+        let hash = 0;
 
-            // We advance the instruction pointer *before* execution (so JMPs can overwrite it).
-            this.ip++;
-
-            opsConsumed++;
-
-            switch (instr.op) {
-                case Opcode.HALT:
-                    this.isHalted = true;
-                    return true;
-                case Opcode.CONST:
-                    this.stack.push(instr.arg);
-                    break;
-
-                // --- Variables ---
-                case Opcode.LOAD:
-                    this.opLoad(instr.arg);
-                    break;
-                case Opcode.STORE:
-                    this.opStore(instr.arg);
-                    break;
-
-                // --- Unary ---
-                case Opcode.NOT: {
-                    const val = this.stack.pop();
-                    this.stack.push(! val); // Lean on JS truthiness.
-                    break;
-                }
-                case Opcode.NEG: {
-                    const val = this.stack.pop();
-                    if (typeof val !== 'number') {
-                        throw new Error(`Runtime Error: Cannot negate non-number '${val}'`);
-                    }
-                    this.stack.push(-val);
-                    break;
-                }
-
-                // --- Math ---
-                case Opcode.ADD: {
-                    const b = this.stack.pop();
-                    const a = this.stack.pop();
-                    this.stack.push(a + b); // JS handles string concat automatically here
-                    break;
-                }
-                case Opcode.SUB: {
-                    const b = this.stack.pop();
-                    const a = this.stack.pop();
-                    this.stack.push(a - b);
-                    break;
-                }
-                case Opcode.MUL: {
-                    const b = this.stack.pop();
-                    const a = this.stack.pop();
-                    this.stack.push(a * b);
-                    break;
-                }
-                case Opcode.DIV: {
-                    const b = this.stack.pop();
-                    const a = this.stack.pop();
-                    if (b === 0) {
-                        throw new Error('Runtime Error: Division by zero');
-                    }
-                    this.stack.push(a / b);
-                    break;
-                }
-
-                // --- Comparison ---
-                case Opcode.EQ: {
-                    const b = this.stack.pop();
-                    const a = this.stack.pop();
-                    this.stack.push(a === b);
-                    break;
-                }
-                case Opcode.NEQ: {
-                    const b = this.stack.pop();
-                    const a = this.stack.pop();
-                    this.stack.push(a !== b);
-                    break;
-                }
-                case Opcode.GT: {
-                    const b = this.stack.pop();
-                    const a = this.stack.pop();
-                    this.stack.push(a > b);
-                    break;
-                }
-                case Opcode.LT: {
-                    const b = this.stack.pop();
-                    const a = this.stack.pop();
-                    this.stack.push(a < b);
-                    break;
-                }
-                case Opcode.GTE: {
-                    const b = this.stack.pop();
-                    const a = this.stack.pop();
-                    this.stack.push(a >= b);
-                    break;
-                }
-                case Opcode.LTE: {
-                    const b = this.stack.pop();
-                    const a = this.stack.pop();
-                    this.stack.push(a <= b);
-                    break;
-                }
-
-                // --- Control Flow ---
-                case Opcode.JMP:
-                    this.ip = instr.arg;
-                    break;
-
-                case Opcode.JMP_IF_FALSE: {
-                    const condition = this.stack.pop();
-                    if (! condition) {
-                        this.ip = instr.arg;
-                    }
-                    break;
-                }
-
-                case Opcode.JMP_IF_TRUE: {
-                    const val = this.stack.pop();
-                    if (val) {
-                        this.ip = instr.arg;
-                    }
-                    break;
-                }
-
-                case Opcode.DUP: {
-                    const val = this.stack[this.stack.length - 1]; // Peek
-                    this.stack.push(val);
-                    break;
-                }
-
-                case Opcode.POP: {
-                    this.stack.pop();
-                    break;
-                }
-
-                case Opcode.PRINT:
-                    const val = this.stack.pop();
-                    if (this.natives.has('print')) {
-                        this.natives.get('print')!(val);
-                    } else {
-                        console.log('[VM Output]:', val);
-                    }
-                    break;
-
-                case Opcode.CALL:
-                    this.opCall(instr.arg);
-                    break;
-
-                case Opcode.RET:
-                    if (this.frames.length === 0) {
-                        this.isHalted = true;
-                        return true;
-                    }
-
-                    const frame = this.frames.pop()!;
-                    this.ip     = frame.returnAddress;
-                    break;
-
-                // --- Collections ---
-                case Opcode.MAKE_ARRAY: {
-                    const count = instr.arg;
-                    const arr   = [];
-
-                    for (let i = 0; i < count; i++) {
-                        arr.unshift(this.stack.pop());
-                    }
-
-                    this.stack.push(arr);
-                    break;
-                }
-
-                case Opcode.MAKE_OBJECT: {
-                    const count = instr.arg; // Number of properties
-                    const obj   = new Map<string, any>();
-
-                    for (let i = 0; i < count; i++) {
-                        const val = this.stack.pop();
-                        const key = this.stack.pop();
-                        obj.set(key, val);
-                    }
-
-                    this.stack.push(obj);
-                    break;
-                }
-
-                case Opcode.GET_PROP: {
-                    const key                           = this.stack.pop();
-                    const obj                           = this.stack.pop();
-                    const debugName: string | undefined = instr.arg;
-
-                    if (Array.isArray(obj)) {
-                        const index = Number(key);
-                        if (isNaN(index)) throw new Error(`Runtime Error: Array index must be a number, got '${key}'`);
-                        if (index < 0 || index >= obj.length) throw new Error(`Index #${index} is out of bounds.`);
-
-                        this.stack.push(obj[index]);
-                    } else if (obj instanceof Map) {
-                        const val = obj.get(key);
-                        this.stack.push(val === undefined ? null : val);
-                    } else {
-                        const target = debugName ? `'${debugName}'` : 'object';
-                        throw new Error(`Cannot access property '${key}' of ${target} because ${target} is not defined.`);
-                    }
-                    break;
-                }
-
-                case Opcode.SET_PROP: {
-                    const val = this.stack.pop();
-                    const key = this.stack.pop();
-                    const obj = this.stack.pop();
-
-                    const debugName: string | undefined = instr.arg;
-
-                    if (Array.isArray(obj)) {
-                        const index = Number(key);
-                        if (isNaN(index)) throw new Error(`Runtime Error: Array index must be a number, got '${key}'`);
-
-                        obj[index] = val;
-                    } else if (obj instanceof Map) {
-                        obj.set(key, val);
-                    } else {
-                        const target = debugName ? `'${debugName}'` : 'object';
-                        throw new Error(`Cannot set property '${key}' of ${target} because ${target} is not defined.`);
-                    }
-
-                    this.stack.push(val);
-                    break;
-                }
-
-                case Opcode.ITER_INIT: {
-                    const list                     = this.stack.pop();
-                    const iterator: IteratorObject = {items: list, index: 0};
-                    this.stack.push(iterator);
-                    break;
-                }
-
-                case Opcode.ITER_NEXT: {
-                    const iterator = this.stack[this.stack.length - 1] as IteratorObject;
-                    const exitAddr = instr.arg;
-
-                    if (iterator.index >= iterator.items.length) {
-                        this.stack.pop();
-                        this.ip = exitAddr;
-                    } else {
-                        const item = iterator.items[iterator.index];
-                        iterator.index++;
-                        this.stack.push(item);
-                    }
-                    break;
-                }
-
-                default:
-                    throw new Error(`VM: Unknown Opcode ${instr.op}`);
+        for (const instr of this.instructions) {
+            const opStr = `${instr.op}:${JSON.stringify(instr.arg)}`;
+            for (let i = 0; i < opStr.length; i++) {
+                const char = opStr.charCodeAt(i);
+                hash       = ((hash << 5) - hash) + char;
+                hash |= 0; // Convert to 32bit integer
             }
         }
 
-        // If we ran out of budget but didn't HALT, return false (Paused)
-        return false;
+        return hash.toString(16);
     }
 
-    private opLoad(name: string)
+    /**
+     * Dump the current state of the VM instructions to the console.
+     */
+    public dump(): void
     {
-        if (this.frames.length > 0) {
-            const frame = this.frames[this.frames.length - 1];
-            if (frame.locals.has(name)) {
-                this.stack.push(frame.locals.get(name));
-                return;
-            }
-        }
+        const lines: string[] = Printer.print(this.instructions, {
+            includeComments:  true,
+            includePositions: true,
+        });
 
-        if (this.globals.has(name)) {
-            this.stack.push(this.globals.get(name));
-            return;
-        }
-        throw new Error(`Runtime Error: Variable '${name}' is not defined.`);
-    }
-
-    private opStore(name: string)
-    {
-        const val = this.stack.pop();
-
-        if (this.frames.length > 0) {
-            const frame = this.frames[this.frames.length - 1];
-            frame.locals.set(name, val);
-        } else {
-            this.globals.set(name, val);
+        for (let i = 0; i < lines.length; i++) {
+            console.log(` ${this.state.ip === i ? '>' : ' '} ` + lines[i]);
         }
     }
 
-    private opCall(arg: { addr: number, args: number })
-    {
-        const args = [];
-        for (let i = 0; i < arg.args; i++) {
-            args.unshift(this.stack.pop());
-        }
-
-        const frame: StackFrame = {
-            returnAddress: this.ip,
-            locals:        new Map(),
-        };
-
-        this.frames.push(frame);
-        this.ip = arg.addr;
-    }
-
+    /**
+     * Handle a runtime error.
+     *
+     * @param {Error} err
+     * @private
+     */
     private handleError(err: Error)
     {
-        this.isHalted = true;
+        this.state.isHalted = true;
 
-        const failedInstruction = this.instructions[this.ip - 1];
+        if (this.throwOnError) {
+            throw err;
+        }
+
+        const failedInstruction = this.instructions[this.state.ip - 1];
 
         if (failedInstruction && failedInstruction.pos) {
             const {lineStart, columnStart} = failedInstruction.pos;
@@ -371,16 +142,4 @@ export class VirtualMachine
             console.error(`[Runtime Error]: ${err.message}`);
         }
     }
-}
-
-interface StackFrame
-{
-    returnAddress: number;
-    locals: Map<string, any>;
-}
-
-interface IteratorObject
-{
-    items: any[];
-    index: number;
 }

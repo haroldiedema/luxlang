@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Tokenizer, TokenType } from '../../dist/Tokenizer/index.js'; // Adjust path
+import { Tokenizer, TokenType } from '../../dist/Tokenizer/index.js';
 
-// Helper to extract just the types and values for easier assertion
 const simplify = (tokens: any[]) => tokens.map(t => ({type: t.type, value: t.value}));
 
 describe('Tokenizer', () => {
@@ -15,6 +14,7 @@ describe('Tokenizer', () => {
             {type: TokenType.IDENTIFIER, value: 'score'},
             {type: TokenType.OPERATOR, value: '='},
             {type: TokenType.NUMBER, value: '100'},
+            {type: TokenType.NEWLINE, value: '\\n'},
         ]);
     });
 
@@ -146,6 +146,7 @@ fn bad_indent:
         expect(tokens).toEqual([
             {type: TokenType.IDENTIFIER, value: 'print'},
             {type: TokenType.STRING, value: 'Hello World'},
+            {type: TokenType.NEWLINE, value: '\\n'},
         ]);
     });
 });

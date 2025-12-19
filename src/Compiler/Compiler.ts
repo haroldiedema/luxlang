@@ -1,8 +1,8 @@
 // Compiler.ts
-import * as AST                     from '../Parser/AST.js';
-import { Parser }                   from '../Parser/index.js';
-import { Tokenizer, TokenPosition } from '../Tokenizer/index.js';
-import { Instruction, Opcode }      from './Opcodes.js';
+import * as AST                   from '../Parser/AST.js';
+import {Parser}                   from '../Parser/index.js';
+import {Tokenizer, TokenPosition} from '../Tokenizer/index.js';
+import {Instruction, Opcode}      from './Opcodes.js';
 
 export class Compiler
 {
@@ -14,7 +14,7 @@ export class Compiler
     public static compile(source: string): Instruction[]
     {
         const tokens = Tokenizer.tokenize(source);
-        const ast = Parser.parse(tokens);
+        const ast    = Parser.parse(tokens);
 
         return new Compiler().compile(ast);
     }
@@ -46,6 +46,11 @@ export class Compiler
 
             case 'ExpressionStatement':
                 this.visit((node as AST.ExpressionStatement).expression);
+                this.emit(Opcode.POP);
+                break;
+
+            case 'ThisExpression':
+                this.emit(Opcode.LOAD, 'this');
                 break;
 
             case 'ReturnStatement':
@@ -63,6 +68,9 @@ export class Compiler
                 break;
 
             case 'FunctionDeclaration':
+                break;
+            case 'MethodDefinition':
+                this.visitMethodDefinition(node as AST.MethodDefinition);
                 break;
 
             case 'Literal':
@@ -146,8 +154,14 @@ export class Compiler
             case '!=':
                 this.emit(Opcode.NEQ);
                 break;
+            case '>=':
+                this.emit(Opcode.GTE);
+                break;
             case '>':
                 this.emit(Opcode.GT);
+                break;
+            case '<=':
+                this.emit(Opcode.LTE);
                 break;
             case '<':
                 this.emit(Opcode.LT);
@@ -194,6 +208,46 @@ export class Compiler
         }
     }
 
+    private visitMethodDefinition(node: AST.MethodDefinition) {
+        const jumpOver = this.emit(Opcode.JMP, 0); // Skip body during execution
+        const funcStart = this.instructions.length;
+
+        // --- FUNCTION BODY START ---
+
+        // 1. Store Parameters
+        // (Same logic as normal functions)
+        for (let i = node.params.length - 1; i >= 0; i--) {
+            this.emit(Opcode.STORE, node.params[i].value);
+        }
+
+        // 2. Compile Body
+        this.visit(node.body);
+
+        // 3. Ensure Return
+        this.emit(Opcode.CONST, null);
+        this.emit(Opcode.RET);
+
+        // --- FUNCTION BODY END ---
+
+        this.patch(jumpOver, this.instructions.length);
+
+        // --- ASSIGNMENT LOGIC ---
+        // Now we bind that code to the object
+
+        // 1. Load the object ("player")
+        this.emit(Opcode.LOAD, node.objectName.value);
+
+        // 2. Load the Method Name ("move")
+        this.emit(Opcode.CONST, node.methodName);
+
+        // 3. Create the Function Object (Closure)
+        // We create a simpler struct { addr: number, args: number }
+        this.emit(Opcode.MAKE_FUNCTION, { name: node.methodName, addr: funcStart, args: node.params.length });
+
+        // 4. Assign it: player["move"] = func
+        this.emit(Opcode.SET_PROP);
+    }
+
     private visitIfStatement(node: AST.IfStatement)
     {
         // 1. Compile Condition
@@ -222,6 +276,17 @@ export class Compiler
 
     private visitCallExpression(node: AST.CallExpression)
     {
+        if (node.callee.type === 'MemberExpression') {
+            const propName = (node.callee.property as AST.Identifier).value;
+            node.arguments.forEach(arg => this.visit(arg));
+            this.visit((node.callee as AST.MemberExpression).object);
+            this.emit(Opcode.CALL_METHOD, {
+                name: propName,
+                args: node.arguments.length,
+            });
+            return;
+        }
+
         node.arguments.forEach(arg => this.visit(arg));
 
         if (node.callee.type !== 'Identifier') {
@@ -229,20 +294,9 @@ export class Compiler
         }
 
         const funcName = (node.callee as AST.Identifier).value;
-
-        // TODO: Handle built-in functions differently (no need for parentheses)
-        //       We might want to have a separate registry for this.
-        if (funcName === 'print') {
-            this.emit(Opcode.PRINT);
-            return;
-        }
-
         const addr = this.functionRegistry.get(funcName);
-        if (addr === undefined) {
-            throw new Error(`Compiler: Undefined function '${funcName}'`);
-        }
 
-        this.emit(Opcode.CALL, {addr, args: node.arguments.length});
+        this.emit(Opcode.CALL, {name: funcName, addr, args: node.arguments.length});
     }
 
     private visitArrayExpression(node: AST.ArrayExpression)
@@ -375,15 +429,21 @@ export class Compiler
             for (const func of functions) {
                 this.functionRegistry.set(func.name.value, this.instructions.length);
 
+                const params: string[] = [];
+                const instrStartIndex  = this.instructions.length;
+
                 for (let i = func.params.length - 1; i >= 0; i--) {
                     const paramName = func.params[i].value;
+                    params.push(paramName);
                     this.emit(Opcode.STORE, paramName);
                 }
 
                 this.visit(func.body);
 
+                this.instructions[instrStartIndex].comment = `DECL ${func.name.value}(${params.reverse().join(', ')})`;
+
                 const lastStmt = func.body.body[func.body.body.length - 1];
-                if (! lastStmt || lastStmt.type !== 'ReturnStatement') {
+                if (!lastStmt || lastStmt.type !== 'ReturnStatement') {
                     this.emit(Opcode.CONST, null);
                     this.emit(Opcode.RET);
                 }
@@ -404,6 +464,13 @@ export class Compiler
     private patch(index: number, value: any)
     {
         this.instructions[index].arg = value;
+    }
+
+    private addComment(text: string)
+    {
+        if (this.instructions.length > 0) {
+            this.instructions[this.instructions.length - 1].comment = text;
+        }
     }
 }
 

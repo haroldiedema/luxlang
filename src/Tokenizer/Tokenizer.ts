@@ -33,6 +33,11 @@ export class Tokenizer
 
     public static tokenize(source: string): TokenStream
     {
+        // Ensure source ends with a newline
+        if (! source.endsWith('\n')) {
+            source += '\n';
+        }
+
         return new Tokenizer(source).tokenize();
     }
 
