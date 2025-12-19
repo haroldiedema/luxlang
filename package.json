@@ -23,7 +23,8 @@
     "watch:ts": "tsc --watch",
     "watch:gen": "nodemon --watch src/VM/Instructions -e ts --exec \"npm run generate\"",
     "watch": "concurrently \"npm run watch:gen\" \"npm run watch:ts\"",
-    "test": "vitest"
+    "test": "vitest --run",
+    "watch:test": "vitest"
   },
   "devDependencies": {
     "@types/node": "^25.0.3",
