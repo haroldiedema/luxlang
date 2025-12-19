@@ -65,6 +65,7 @@ import { ForbiddenKeys }  from './ForbiddenKeys.js';
 import { dispatchNative } from './NativeDispatcher.js';
 import { State }          from './State.js';
 import { Opcode }         from '../Compiler/Opcodes.js';
+import { Program }        from '../Compiler/Program.js';
 
 /**
  * Handles instruction execution for the VM.
@@ -74,7 +75,7 @@ import { Opcode }         from '../Compiler/Opcodes.js';
 export abstract class InstructionSet
 {
     protected abstract state: State;
-    protected abstract instructions: any[];
+    protected abstract program: Program;
     protected abstract natives: Map<string, Function>;
 
     /**
@@ -86,7 +87,7 @@ export abstract class InstructionSet
     public execute(budget: number): boolean
     {
         const state = this.state;
-        const instructions = this.instructions;
+        const instructions = this.program.instructions;
 
         while (budget > 0 && !state.isHalted) {
             const instr = instructions[state.ip];

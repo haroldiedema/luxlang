@@ -1,10 +1,10 @@
 import {describe, expect, it}                                         from 'vitest';
-import {Compiler, Instruction, VirtualMachine, VirtualMachineOptions} from '../../dist/index.js';
+import {Compiler, Program, VirtualMachine, VirtualMachineOptions} from '../../dist/index.js';
 
 function createVM(code: string, options: VirtualMachineOptions = {}): VirtualMachine
 {
-    const bytecode: Instruction[] = Compiler.compile(code);
-    const vm                      = new VirtualMachine(bytecode, Object.assign({throwOnError: true}, options));
+    const program: Program = Compiler.compile(code);
+    const vm                      = new VirtualMachine(program, Object.assign({throwOnError: true}, options));
 
     vm.registerNative('fail', () => {
         throw new Error('Native function "fail" was called.');
@@ -238,5 +238,37 @@ c = a + b
         const invalidState = '{"state":{"hash":"invalid-hash","ip":10,"stack":{"$ref":1},"globals":{"$ref":2},"frames":{"$ref":3}},"heap":{"1":[],"2":{},"3":[]}}';
 
         expect(() => vm.load(invalidState)).toThrow(/The state is incompatible with the current program/);
+    });
+
+    it('should register event hooks correctly', () => {
+        const vm = createVM(`on myEvent(name):\n    log("Hello, " + name)\n`);
+
+        expect(vm.eventNames).toContain('myEvent');
+    });
+
+    it('should handle event interrupts without corrupting the stack', () => {
+        const vm = createVM(`
+sum = 0
+fn loop():
+    sum = sum + 10
+    loop()
+
+on interrupt():
+    // This returns "999" to the stack. 
+    // If RET doesn't pop it, 'sum = sum + 10' will fail next time.
+    return 999
+
+loop() // Start the infinite loop
+        `);
+
+        vm.run(25);
+        const sumAtPause = vm.globals['sum'];
+        expect(sumAtPause).toBeGreaterThan(0);
+
+        vm.dispatch('interrupt');
+        vm.run(25);
+
+        expect(vm.globals['sum']).toBeGreaterThan(sumAtPause);
+        expect(vm.globals['sum'] % 10).toBe(0);
     });
 });

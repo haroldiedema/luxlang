@@ -1,10 +1,10 @@
 import {TokenPosition} from '../Tokenizer/index.js';
 
 export type NodeType =
-    | 'Program' | 'Block' | 'FunctionDeclaration' | 'MethodDefinition' | 'IfStatement' | 'ReturnStatement'
+    | 'Script' | 'Block' | 'FunctionDeclaration' | 'MethodDefinition' | 'IfStatement' | 'ReturnStatement'
     | 'ExpressionStatement' | 'AssignmentExpression' | 'BinaryExpression' | 'LogicalExpression' | 'UnaryExpression'
     | 'CallExpression' | 'MemberExpression' | 'ArrayExpression' | 'ObjectExpression' | 'Property'
-    | 'Identifier' | 'Literal' | 'ForStatement' | 'BreakStatement' | 'ContinueStatement' | 'ThisExpression';
+    | 'Identifier' | 'Literal' | 'ForStatement' | 'BreakStatement' | 'ContinueStatement' | 'ThisExpression' | 'EventHook';
 
 export interface BaseStmt
 {
@@ -18,9 +18,9 @@ export interface BaseExpr
     position: TokenPosition;
 }
 
-export interface Program extends BaseStmt
+export interface Script extends BaseStmt
 {
-    type: 'Program';
+    type: 'Script';
     body: Stmt[];
 }
 
@@ -28,6 +28,14 @@ export interface Block extends BaseStmt
 {
     type: 'Block';
     body: Stmt[];
+}
+
+export interface EventHook extends BaseStmt
+{
+    type: 'EventHook';
+    name: Identifier;
+    params: Identifier[];
+    body: Block;
 }
 
 export interface FunctionDeclaration extends BaseStmt
@@ -169,8 +177,9 @@ export interface ForStatement extends BaseStmt
 }
 
 export type Stmt =
-    Program
+    Script
     | Block
+    | EventHook
     | FunctionDeclaration
     | MethodDefinition
     | IfStatement

@@ -1,25 +1,25 @@
-import {describe, expect, it} from 'vitest';
-import {Parser, Tokenizer}    from '../../dist/index.js';
-import type * as AST          from '../../dist/Parser/AST.js';
+import { describe, expect, it } from 'vitest';
+import { Parser, Tokenizer }    from '../../dist/index.js';
+import type * as AST            from '../../dist/Parser/AST.js';
 
 describe('Parser', () => {
 
     it('should parse a basic function declaration', () => {
-        const source  = `
+        const source = `
 fn greet:
     print("Hello")
     return 1
 `;
-        const tokens  = Tokenizer.tokenize(source);
-        const parser  = new Parser(tokens);
-        const program = parser.parse();
+        const tokens = Tokenizer.tokenize(source);
+        const parser = new Parser(tokens);
+        const script = parser.parse();
 
         // 1. Check Root
-        expect(program.type).toBe('Program');
-        expect(program.body.length).toBe(1);
+        expect(script.type).toBe('Script');
+        expect(script.body.length).toBe(1);
 
         // 2. Check Function Declaration
-        const func = program.body[0] as AST.FunctionDeclaration;
+        const func = script.body[0] as AST.FunctionDeclaration;
         expect(func.type).toBe('FunctionDeclaration');
         expect(func.name.value).toBe('greet');
         expect(func.params.length).toBe(0);

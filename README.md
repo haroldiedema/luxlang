@@ -67,7 +67,6 @@ name = "Hero"       # String
 level = 42          # Number
 is_alive = true     # Boolean (true/false)
 nothing = null      # Null
-
 ```
 
 ### Data Structures

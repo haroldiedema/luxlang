@@ -1,17 +1,23 @@
-// Compiler.ts
-import * as AST                   from '../Parser/AST.js';
-import {Parser}                   from '../Parser/index.js';
-import {Tokenizer, TokenPosition} from '../Tokenizer/index.js';
-import {Instruction, Opcode}      from './Opcodes.js';
+import * as AST                     from '../Parser/AST.js';
+import { Parser }                   from '../Parser/index.js';
+import { Tokenizer, TokenPosition } from '../Tokenizer/index.js';
+import { Instruction, Opcode }      from './Opcodes.js';
+import { Program }                  from './Program.js';
 
 export class Compiler
 {
-    private instructions: Instruction[]           = [];
-    private functionRegistry: Map<string, number> = new Map();
-    private loopStack: LoopContext[]              = [];
-    private currentPos: TokenPosition | null      = null;
+    private loopStack: LoopContext[]         = [];
+    private currentPos: TokenPosition | null = null;
 
-    public static compile(source: string): Instruction[]
+    private program: Program = {
+        instructions: [],
+        metadata:     {
+            functions: {},
+            events:    {},
+        },
+    };
+
+    public static compile(source: string): Program
     {
         const tokens = Tokenizer.tokenize(source);
         const ast    = Parser.parse(tokens);
@@ -19,12 +25,18 @@ export class Compiler
         return new Compiler().compile(ast);
     }
 
-    public compile(program: AST.Program): Instruction[]
+    public compile(program: AST.Script): Program
     {
-        this.instructions = [];
-        this.functionRegistry.clear();
+        this.program = {
+            instructions: [],
+            metadata:     {
+                functions: {},
+                events:    {},
+            },
+        };
 
         this.hoistFunctions(program);
+        this.hoistEventHooks(program);
 
         for (const stmt of program.body) {
             this.visit(stmt);
@@ -32,7 +44,7 @@ export class Compiler
 
         this.emit(Opcode.HALT);
 
-        return this.instructions;
+        return this.program;
     }
 
     private visit(node: AST.Stmt | AST.Expr): void
@@ -68,6 +80,8 @@ export class Compiler
                 break;
 
             case 'FunctionDeclaration':
+            case 'EventHook':
+                // Handled in hoisting phase.
                 break;
             case 'MethodDefinition':
                 this.visitMethodDefinition(node as AST.MethodDefinition);
@@ -180,14 +194,14 @@ export class Compiler
             this.emit(Opcode.POP);
             this.visit(node.right);
 
-            this.patch(jumpIndex, this.instructions.length);
+            this.patch(jumpIndex, this.program.instructions.length);
         } else if (node.operator === 'and') {
             const jumpIndex = this.emit(Opcode.JMP_IF_FALSE, -1);
 
             this.emit(Opcode.POP);
             this.visit(node.right);
 
-            this.patch(jumpIndex, this.instructions.length);
+            this.patch(jumpIndex, this.program.instructions.length);
         }
     }
 
@@ -208,43 +222,22 @@ export class Compiler
         }
     }
 
-    private visitMethodDefinition(node: AST.MethodDefinition) {
-        const jumpOver = this.emit(Opcode.JMP, 0); // Skip body during execution
-        const funcStart = this.instructions.length;
+    private visitMethodDefinition(node: AST.MethodDefinition)
+    {
+        const jumpOver  = this.emit(Opcode.JMP, 0); // Skip body during execution
+        const funcStart = this.program.instructions.length;
 
-        // --- FUNCTION BODY START ---
-
-        // 1. Store Parameters
-        // (Same logic as normal functions)
         for (let i = node.params.length - 1; i >= 0; i--) {
             this.emit(Opcode.STORE, node.params[i].value);
         }
 
-        // 2. Compile Body
         this.visit(node.body);
-
-        // 3. Ensure Return
         this.emit(Opcode.CONST, null);
         this.emit(Opcode.RET);
-
-        // --- FUNCTION BODY END ---
-
-        this.patch(jumpOver, this.instructions.length);
-
-        // --- ASSIGNMENT LOGIC ---
-        // Now we bind that code to the object
-
-        // 1. Load the object ("player")
+        this.patch(jumpOver, this.program.instructions.length);
         this.emit(Opcode.LOAD, node.objectName.value);
-
-        // 2. Load the Method Name ("move")
         this.emit(Opcode.CONST, node.methodName);
-
-        // 3. Create the Function Object (Closure)
-        // We create a simpler struct { addr: number, args: number }
-        this.emit(Opcode.MAKE_FUNCTION, { name: node.methodName, addr: funcStart, args: node.params.length });
-
-        // 4. Assign it: player["move"] = func
+        this.emit(Opcode.MAKE_FUNCTION, {name: node.methodName, addr: funcStart, args: node.params.length});
         this.emit(Opcode.SET_PROP);
     }
 
@@ -263,7 +256,7 @@ export class Compiler
         const jumpToEndIndex = this.emit(Opcode.JMP, -1);
 
         // 5. Patch the JMP_IF_FALSE to point to here (Start of Else)
-        this.patch(jumpToElseIndex, this.instructions.length);
+        this.patch(jumpToElseIndex, this.program.instructions.length);
 
         // 6. Compile "Else" Block (if it exists)
         if (node.alternate) {
@@ -271,7 +264,7 @@ export class Compiler
         }
 
         // 7. Patch the JMP to point to here (End of If/Else)
-        this.patch(jumpToEndIndex, this.instructions.length);
+        this.patch(jumpToEndIndex, this.program.instructions.length);
     }
 
     private visitCallExpression(node: AST.CallExpression)
@@ -294,9 +287,9 @@ export class Compiler
         }
 
         const funcName = (node.callee as AST.Identifier).value;
-        const addr = this.functionRegistry.get(funcName);
+        const funcAddr = this.program.metadata.functions[funcName];
 
-        this.emit(Opcode.CALL, {name: funcName, addr, args: node.arguments.length});
+        this.emit(Opcode.CALL, {name: funcName, addr: funcAddr?.address, args: node.arguments.length});
     }
 
     private visitArrayExpression(node: AST.ArrayExpression)
@@ -373,7 +366,7 @@ export class Compiler
         this.visit(node.collection);
         this.emit(Opcode.ITER_INIT);
 
-        const iterNextIndex = this.instructions.length;
+        const iterNextIndex = this.program.instructions.length;
 
         this.loopStack.push({
             continueAddress: iterNextIndex,
@@ -387,7 +380,7 @@ export class Compiler
 
         this.emit(Opcode.JMP, iterNextIndex);
 
-        const loopEndIndex = this.instructions.length;
+        const loopEndIndex = this.program.instructions.length;
         this.patch(jumpToExitIndex, loopEndIndex);
 
         const context = this.loopStack.pop();
@@ -419,58 +412,95 @@ export class Compiler
         this.emit(Opcode.JMP, ctx.continueAddress);
     }
 
-    private hoistFunctions(program: AST.Program)
+    private hoistFunctions(program: AST.Script)
     {
         const functions = program.body.filter(s => s.type === 'FunctionDeclaration') as AST.FunctionDeclaration[];
 
-        if (functions.length > 0) {
-            const jumpOverIndex = this.emit(Opcode.JMP, -1);
+        if (functions.length === 0) {
+            return;
+        }
 
-            for (const func of functions) {
-                this.functionRegistry.set(func.name.value, this.instructions.length);
+        const jumpOverIndex = this.emit(Opcode.JMP, -1);
 
-                const params: string[] = [];
-                const instrStartIndex  = this.instructions.length;
+        for (const func of functions) {
+            this.program.metadata.functions[func.name.value] = {
+                address: this.program.instructions.length,
+                numArgs: func.params.length,
+            };
 
-                for (let i = func.params.length - 1; i >= 0; i--) {
-                    const paramName = func.params[i].value;
-                    params.push(paramName);
-                    this.emit(Opcode.STORE, paramName);
-                }
+            const params: string[] = [];
+            const instrStartIndex  = this.program.instructions.length;
 
-                this.visit(func.body);
-
-                this.instructions[instrStartIndex].comment = `DECL ${func.name.value}(${params.reverse().join(', ')})`;
-
-                const lastStmt = func.body.body[func.body.body.length - 1];
-                if (!lastStmt || lastStmt.type !== 'ReturnStatement') {
-                    this.emit(Opcode.CONST, null);
-                    this.emit(Opcode.RET);
-                }
+            for (let i = func.params.length - 1; i >= 0; i--) {
+                const paramName = func.params[i].value;
+                params.push(paramName);
+                this.emit(Opcode.STORE, paramName);
             }
 
-            this.patch(jumpOverIndex, this.instructions.length);
+            this.visit(func.body);
+
+            this.program.instructions[instrStartIndex].comment = `DECL ${func.name.value}(${params.reverse().join(', ')})`;
+
+            const lastStmt = func.body.body[func.body.body.length - 1];
+            if (! lastStmt || lastStmt.type !== 'ReturnStatement') {
+                this.emit(Opcode.CONST, null);
+                this.emit(Opcode.RET);
+            }
         }
+
+        this.patch(jumpOverIndex, this.program.instructions.length);
+    }
+
+    private hoistEventHooks(program: AST.Script)
+    {
+        const hooks = program.body.filter(s => s.type === 'EventHook') as AST.EventHook[];
+
+        if (hooks.length === 0) {
+            return;
+        }
+
+        const jumpOverIndex = this.emit(Opcode.JMP, -1);
+
+        for (const hook of hooks) {
+            this.program.metadata.events[hook.name.value] = {
+                address: this.program.instructions.length,
+                numArgs: hook.params.length,
+            };
+
+            const params: string[] = [];
+            const instrStartIndex  = this.program.instructions.length;
+
+            for (let i = hook.params.length - 1; i >= 0; i--) {
+                const paramName = hook.params[i].value;
+                params.push(paramName);
+                this.emit(Opcode.STORE, paramName);
+            }
+
+            this.visit(hook.body);
+
+            this.program.instructions[instrStartIndex].comment = `HOOK ${hook.name.value}(${params.reverse().join(', ')})`;
+
+            const lastStmt = hook.body.body[hook.body.body.length - 1];
+            if (! lastStmt || lastStmt.type !== 'ReturnStatement') {
+                this.emit(Opcode.CONST, null);
+                this.emit(Opcode.RET);
+            }
+        }
+
+        this.patch(jumpOverIndex, this.program.instructions.length);
     }
 
     private emit(op: Opcode, arg: any = null): number
     {
         const instr: Instruction = {op, arg, pos: this.currentPos ? {...this.currentPos} : undefined};
-        this.instructions.push(instr);
+        this.program.instructions.push(instr);
 
-        return this.instructions.length - 1;
+        return this.program.instructions.length - 1;
     }
 
     private patch(index: number, value: any)
     {
-        this.instructions[index].arg = value;
-    }
-
-    private addComment(text: string)
-    {
-        if (this.instructions.length > 0) {
-            this.instructions[this.instructions.length - 1].comment = text;
-        }
+        this.program.instructions[index].arg = value;
     }
 }
 

@@ -130,12 +130,26 @@ const tests = [
             '00000025 HALT                                                                     // (8:7)',
         ],
     },
+    {
+        name: 'Event Hook',
+        src:  `on click(event):\n    print("Clicked!")\n`,
+        code: [
+            '00000000 JMP          7                                                     ',
+            '00000001 STORE        "event"                           ; HOOK click(event) ',
+            '00000002 CONST        "Clicked!"                                             // (2:5)',
+            '00000003 CALL         {name: "print", addr: , args: 1}                       // (2:5)',
+            '00000004 POP                                                                 // (2:5)',
+            '00000005 CONST                                                               // (2:5)',
+            '00000006 RET                                                                 // (2:5)',
+            '00000007 HALT                                                                // (1:1)'
+        ],
+    }
 ];
 
 describe('Compiler', () => {
     for (const test of tests) {
         it(`should compile: ${test.name}`, () => {
-            const bytecode: Instruction[] = Compiler.compile(test.src);
+            const bytecode: Instruction[] = Compiler.compile(test.src).instructions;
             const printed: string[]       = Printer.print(bytecode, {includeComments: true, includePositions: true});
             const actualLines: string[]   = printed.slice(0, test.code.length);
 

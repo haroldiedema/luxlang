@@ -1,14 +1,14 @@
-import {Printer}               from '../Compiler/index.js';
-import {Instruction, Opcode}   from '../Compiler/Opcodes.js';
-import {Deserializer}          from './Deserializer.js';
-import {InstructionSet}        from './InstructionSet.js';
-import {Serializer}            from './Serializer.js';
-import {State}                 from './State.js';
-import {VirtualMachineOptions} from './VirtualMachineOptions.js';
+import { Printer, Program }      from '../Compiler/index.js';
+import { Instruction, Opcode }   from '../Compiler/Opcodes.js';
+import { Deserializer }          from './Deserializer.js';
+import { InstructionSet }        from './InstructionSet.js';
+import { Serializer }            from './Serializer.js';
+import { State }                 from './State.js';
+import { VirtualMachineOptions } from './VirtualMachineOptions.js';
 
 export class VirtualMachine extends InstructionSet
 {
-    protected readonly instructions: Instruction[];
+    protected readonly program: Program;
     protected readonly natives: Map<string, Function> = new Map();
 
     protected state: State;
@@ -18,7 +18,7 @@ export class VirtualMachine extends InstructionSet
     private readonly serializer: Serializer;
     private readonly deserializer: Deserializer;
 
-    constructor(bytecode: Instruction[], options: VirtualMachineOptions = {})
+    constructor(program: Program, options: VirtualMachineOptions = {})
     {
         super();
 
@@ -26,13 +26,18 @@ export class VirtualMachine extends InstructionSet
         this.serializer   = new Serializer();
         this.deserializer = new Deserializer();
 
-        this.instructions = bytecode;
+        this.program      = program;
         this.state        = new State(options.variables ?? {});
         this.throwOnError = options.throwOnError ?? false;
 
         for (const [name, fn] of Object.entries(options.functions ?? {})) {
             this.registerNative(name, fn);
         }
+    }
+
+    public get globals(): Record<string, any>
+    {
+        return this.state.globals;
     }
 
     /**
@@ -59,6 +64,30 @@ export class VirtualMachine extends InstructionSet
             this.handleError(e as Error);
             return true; // Halt on error
         }
+    }
+
+    public get eventNames(): string[]
+    {
+        return Object.keys(this.program.metadata.events);
+    }
+
+    public dispatch(eventName: string, args: any[] = []): void
+    {
+        const eventInfo = this.program.metadata.events[eventName];
+
+        if (! eventInfo) {
+            throw new Error(`Event "${eventName}" is not defined.`);
+        }
+
+        for (let i = 0; i < eventInfo.numArgs; i++) {
+            this.state.stack.push(args[i] ?? null);
+        }
+
+        this.state.pushFrame(this.state.ip, true);
+        this.state.ip = eventInfo.address;
+
+        // Make sure the VM is not halted when dispatching an event.
+        this.state.isHalted = false;
     }
 
     /**
@@ -90,7 +119,7 @@ export class VirtualMachine extends InstructionSet
     {
         let hash = 0;
 
-        for (const instr of this.instructions) {
+        for (const instr of this.program.instructions) {
             const opStr = `${instr.op}:${JSON.stringify(instr.arg)}`;
             for (let i = 0; i < opStr.length; i++) {
                 const char = opStr.charCodeAt(i);
@@ -107,7 +136,7 @@ export class VirtualMachine extends InstructionSet
      */
     public dump(): void
     {
-        const lines: string[] = Printer.print(this.instructions, {
+        const lines: string[] = Printer.print(this.program.instructions, {
             includeComments:  true,
             includePositions: true,
         });
@@ -131,7 +160,7 @@ export class VirtualMachine extends InstructionSet
             throw err;
         }
 
-        const failedInstruction = this.instructions[this.state.ip - 1];
+        const failedInstruction = this.program.instructions[this.state.ip - 1];
 
         if (failedInstruction && failedInstruction.pos) {
             const {lineStart, columnStart} = failedInstruction.pos;

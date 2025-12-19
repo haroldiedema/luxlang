@@ -1,6 +1,7 @@
 export type StackFrame = {
     returnIp: number;
-    locals: Record<string, any>; // Changed from Map to Record for JSON serialization
+    locals: Record<string, any>;
+    isInterrupt: boolean;
 }
 
 /**
@@ -61,34 +62,24 @@ export class State
         if (data.globals) {
             this._globals = data.globals;
         }
-
-        console.log('IMPORT STATE:', data);
     }
 
+    // FIXME: This should not be exposed like this.
     public get stack(): any[]
     {
         return this._stack;
     }
 
+    // FIXME: This should not be exposed like this.
     public get frames(): StackFrame[]
     {
         return this._frames;
     }
 
+    // FIXME: This should not be exposed like this.
     public get globals(): Record<string, any>
     {
         return this._globals;
-    }
-
-    public toJSON()
-    {
-        return {
-            ip:       this.ip,
-            isHalted: this.isHalted,
-            stack:    this._stack,
-            frames:   this._frames,
-            globals:  this._globals,
-        };
     }
 
     /**
@@ -119,13 +110,15 @@ export class State
      * Push a new frame onto the call stack.
      *
      * @param {number} returnIp - The instruction pointer to return to after the function call.
+     * @param {boolean} isInterrupt - Whether this frame is for an interrupt handler.
      */
-    public pushFrame(returnIp: number): StackFrame
+    public pushFrame(returnIp: number, isInterrupt: boolean = false): StackFrame
     {
         const frame = {
             returnIp,
-            locals: {}, // Empty record
-        };
+            isInterrupt,
+            locals: {},
+        } satisfies StackFrame;
 
         this._frames.push(frame);
 

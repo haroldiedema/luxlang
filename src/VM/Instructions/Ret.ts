@@ -13,4 +13,8 @@ export function ret(state: State, arg: any): void
     }
 
     state.ip = frame.returnIp;
+
+    if (frame.isInterrupt) {
+        state.pop(); // Clean the returned value from the stack.
+    }
 }

@@ -5,7 +5,7 @@ export class Parser
 {
     private stream: TokenStream;
 
-    public static parse(tokens: TokenStream): AST.Program
+    public static parse(tokens: TokenStream): AST.Script
     {
         return new Parser(tokens).parse();
     }
@@ -15,7 +15,7 @@ export class Parser
         this.stream = stream;
     }
 
-    public parse(): AST.Program
+    public parse(): AST.Script
     {
         const statements: AST.Stmt[] = [];
         while (!this.stream.isEof) {
@@ -23,7 +23,7 @@ export class Parser
             statements.push(this.parseStatement());
         }
         return {
-            type:     'Program',
+            type:     'Script',
             body:     statements,
             position: {
                 lineStart:   1,
@@ -41,6 +41,8 @@ export class Parser
 
         if (token.type === TokenType.KEYWORD) {
             switch (token.value) {
+                case 'on':
+                    return this.parseEventHook();
                 case 'fn':
                     return this.parseFunctionDeclaration();
                 case 'return':
@@ -56,6 +58,30 @@ export class Parser
             }
         }
         return this.parseExpressionStatement();
+    }
+
+    private parseEventHook(): AST.EventHook
+    {
+        const position = this.currentPos();
+        this.consume(TokenType.KEYWORD, 'on');
+
+        const name = this.parseIdentifier();
+
+        const params: AST.Identifier[] = [];
+
+        if (this.match(TokenType.PUNCTUATION, '(')) {
+            if (!this.check(TokenType.PUNCTUATION, ')')) {
+                do {
+                    params.push(this.parseIdentifier());
+                } while (this.match(TokenType.PUNCTUATION, ','));
+            }
+            this.consume(TokenType.PUNCTUATION, ')');
+        }
+        this.consume(TokenType.PUNCTUATION, ':');
+
+        const body = this.parseBlock();
+
+        return {type: 'EventHook', name, params, body, position};
     }
 
     private parseFunctionDeclaration(): AST.FunctionDeclaration | AST.MethodDefinition
