@@ -1,10 +1,10 @@
-import {describe, expect, it}                            from 'vitest';
-import {Compiler, VirtualMachine, VirtualMachineOptions} from '../../dist/index.js';
+import {describe, expect, it}                                         from 'vitest';
+import {Compiler, Instruction, VirtualMachine, VirtualMachineOptions} from '../../dist/index.js';
 
 function createVM(code: string, options: VirtualMachineOptions = {}): VirtualMachine
 {
-    const bytecode = Compiler.compile(code);
-    const vm       = new VirtualMachine(bytecode, Object.assign({throwOnError: true}, options));
+    const bytecode: Instruction[] = Compiler.compile(code);
+    const vm                      = new VirtualMachine(bytecode, Object.assign({throwOnError: true}, options));
 
     vm.registerNative('fail', () => {
         throw new Error('Native function "fail" was called.');
@@ -125,8 +125,8 @@ log(player.greet("Bob"))
     });
 
     it('Should be able to manipulate arrays', () => {
-        const buffer: any = {arr: []}
-        const vm = createVM(`
+        const buffer: any = {arr: []};
+        const vm          = createVM(`
 arr = [10, 20, 30]
 arr.unshift(1) // remove 10.
 arr.push(40, 50) // add 40, 50
@@ -134,13 +134,13 @@ arr.pop() // remove 50.
 arr.shift() // remove 1.
 arr.unshift(-10) // add -10 at start.
         `, {
-            variables: buffer
+            variables: buffer,
         });
 
         const finished = vm.run(100);
         expect(finished).toBe(true);
         expect(buffer.arr).toEqual([-10, 10, 20, 30, 40]);
-    })
+    });
 
     it('cannot escape sandbox', () => {
         const vm = createVM(`
@@ -154,10 +154,11 @@ hack = f("console.log('I just hacked your game engine!')")
 hack()
         `, {
             variables: {
-                player: new class {
-                    public name: string = 'Hero123'
-                }
-            }
+                player: new class
+                {
+                    public name: string = 'Hero123';
+                },
+            },
         });
 
         expect(() => vm.run(100)).toThrow(/Access to property 'constructor' is forbidden./);
@@ -215,12 +216,13 @@ fn player.kill():
 log(player.greet())
 `, {
             functions: {
-                log: (msg: string) => { /* no-op */ },
+                log: (msg: string) => { /* no-op */
+                },
             },
         });
 
         vm.run(20); // Run some instructions.
-        const savedState = vm.save();
+        const savedState    = vm.save();
         const expectedState = '{"state":{"hash":"-2847d97b","ip":50,"stack":{"$ref":1},"globals":{"$ref":4},"frames":{"$ref":5}},"heap":{"1":[{"$ref":2},{"$ref":3},"kill"],"2":{"type":"ScriptFunction","addr":20,"args":0},"3":{"health":100,"level":1,"class":"Adventurer","name":"Noob","greet":{"$ref":2}},"4":{"player":{"$ref":3}},"5":[]}}';
 
         expect(savedState).toBe(expectedState);
@@ -236,5 +238,5 @@ c = a + b
         const invalidState = '{"state":{"hash":"invalid-hash","ip":10,"stack":{"$ref":1},"globals":{"$ref":2},"frames":{"$ref":3}},"heap":{"1":[],"2":{},"3":[]}}';
 
         expect(() => vm.load(invalidState)).toThrow(/The state is incompatible with the current program/);
-    })
+    });
 });
