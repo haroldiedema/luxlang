@@ -77,7 +77,9 @@ export abstract class InstructionSet
     protected abstract state: State;
     protected abstract program: Program;
     protected abstract natives: Map<string, Function>;
-
+    protected abstract moduleCache: Record<string, any>;
+    protected abstract resolveModule: (moduleName: string) => Program | undefined;
+    
     /**
      * Executes instructions until the budget is exhausted or the VM halts.
      *
@@ -89,8 +91,13 @@ export abstract class InstructionSet
         const state = this.state;
         const instructions = this.program.instructions;
 
-        while (budget > 0 && !state.isHalted) {
+        while (budget > 0 && !state.isHalted && state.ip < instructions.length) {
             const instr = instructions[state.ip];
+
+            if (! instr?.op) {
+                throw new Error(\`Instruction format invalid: \${JSON.stringify(instruction)}\`);
+            }
+
             state.ip++; // Automatic IP Increment (Standard VM behavior)
 
             switch (instr.op) {
@@ -106,6 +113,9 @@ ${allOps.map(op => `                case ${op.opcode}: this.__op_${op.funcName}(
     const processedBody = op.body
         .replace(/state\./g, 'this.state.')
         .replace(/natives\./g, 'this.natives.')
+        .replace(/moduleCache/g, 'this.moduleCache')
+        .replace(/resolveModule\(/g, 'this.resolveModule(')
+        .replace(/program\./g, 'this.program.')
         .trim()
         .replace(/\n/g, '\n    ');
 

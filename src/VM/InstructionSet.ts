@@ -15,7 +15,9 @@ export abstract class InstructionSet
     protected abstract state: State;
     protected abstract program: Program;
     protected abstract natives: Map<string, Function>;
-
+    protected abstract moduleCache: Record<string, any>;
+    protected abstract resolveModule: (moduleName: string) => Program | undefined;
+    
     /**
      * Executes instructions until the budget is exhausted or the VM halts.
      *
@@ -27,8 +29,14 @@ export abstract class InstructionSet
         const state = this.state;
         const instructions = this.program.instructions;
 
-        while (budget > 0 && !state.isHalted) {
+        while (budget > 0 && !state.isHalted && state.ip < instructions.length) {
             const instr = instructions[state.ip];
+            
+            if (! instr?.op) {
+                console.log(instructions);
+                throw new Error(`Instruction pointer out of bounds: ${this.state.ip}`);
+            }
+            
             state.ip++; // Automatic IP Increment (Standard VM behavior)
 
             switch (instr.op) {
@@ -39,10 +47,12 @@ export abstract class InstructionSet
                 case Opcode.DIV: this.__op_div(instr.arg); break;
                 case Opcode.DUP: this.__op_dup(instr.arg); break;
                 case Opcode.EQ: this.__op_eq(instr.arg); break;
+                case Opcode.EXPORT: this.__op__export(instr.arg); break;
                 case Opcode.GET_PROP: this.__op_getProp(instr.arg); break;
                 case Opcode.GT: this.__op_gt(instr.arg); break;
                 case Opcode.GTE: this.__op_gte(instr.arg); break;
                 case Opcode.HALT: this.__op_halt(instr.arg); break;
+                case Opcode.IMPORT: this.__op__import(instr.arg); break;
                 case Opcode.ITER_INIT: this.__op_iterInit(instr.arg); break;
                 case Opcode.ITER_NEXT: this.__op_iterNext(instr.arg); break;
                 case Opcode.JMP: this.__op_jmp(instr.arg); break;
@@ -63,6 +73,7 @@ export abstract class InstructionSet
                 case Opcode.SET_PROP: this.__op_setProp(instr.arg); break;
                 case Opcode.STORE: this.__op_store(instr.arg); break;
                 case Opcode.SUB: this.__op_sub(instr.arg); break;
+                case Opcode.SWAP: this.__op_swap(instr.arg); break;
             }
 
             budget--;
@@ -135,7 +146,7 @@ export abstract class InstructionSet
             return;
         }
     
-        throw new Error(`CALL_METHOD: Method '${name}' not found on receiver`);
+        throw new Error(`CALL_METHOD: Method '${name}' not found on receiver (${typeof receiver})`);
     }
 
     protected __op_constant(arg: any): void
@@ -164,6 +175,22 @@ export abstract class InstructionSet
         const a = this.state.pop();
     
         this.state.push(a == b);
+    }
+
+    protected __op__export(arg: any): void
+    {
+        const val  = this.state.pop();
+        const name = this.state.pop();
+    
+        const frame = this.state.frames[this.state.frames.length - 1];
+    
+        // If we are in the main scope (no frames) or a frame without export tracking,
+        // we can either throw or ignore. Usually, modules run inside a frame.
+        if (! frame) {
+            return;
+        }
+    
+        frame.exports[name] = val;
     }
 
     protected __op_getProp(arg: any): void
@@ -212,6 +239,60 @@ export abstract class InstructionSet
     protected __op_halt(arg: any): void
     {
         this.state.isHalted = true;
+    }
+
+    protected __op__import(arg: any): void
+    {
+        if (this.moduleCache[arg]) {
+            const moduleExports = this.moduleCache[arg];
+            this.state.push(moduleExports);
+            return;
+        }
+    
+        const moduleProgram = this.resolveModule(arg);
+        if (! moduleProgram) {
+            throw new Error(`Module not found: ${arg}`);
+        }
+    
+        if (! moduleProgram || typeof moduleProgram !== 'object') {
+            throw new Error(`Invalid module format for: ${arg}`);
+        }
+    
+        if (typeof moduleProgram.instructions === 'undefined') {
+            this.state.push(moduleProgram);
+            return;
+        }
+    
+        const returnIp      = this.state.ip;
+        const moduleStartIp = this.program.instructions.length;
+    
+        this.program.instructions.push(...moduleProgram.instructions.map((instr: any) => {
+            const newInstr = {...instr};
+    
+            if (
+                newInstr.op === Opcode.JMP ||
+                newInstr.op === Opcode.JMP_IF_TRUE ||
+                newInstr.op === Opcode.JMP_IF_FALSE ||
+                newInstr.op === Opcode.CALL ||
+                newInstr.op === Opcode.ITER_NEXT
+            ) {
+                if (typeof newInstr.arg === 'number') {
+                    newInstr.arg += moduleStartIp;
+                }
+            }
+    
+            if (newInstr.op === Opcode.MAKE_FUNCTION) {
+                newInstr.arg = {
+                    ...newInstr.arg,
+                    addr: newInstr.arg.addr + moduleStartIp,
+                };
+            }
+    
+            return newInstr;
+        }));
+    
+        this.state.pushFrame(returnIp, false, true, arg);
+        this.state.ip = moduleStartIp;
     }
 
     protected __op_iterInit(arg: any): void
@@ -359,6 +440,21 @@ export abstract class InstructionSet
     
         if (frame.isInterrupt) {
             this.state.pop(); // Clean the returned value from the stack.
+            return;
+        }
+    
+        if (frame.isModule) {
+            // Collect exports
+            const exports: Record<string, any> = {};
+            for (const [key, value] of Object.entries(frame.exports)) {
+                exports[key] = value;
+            }
+    
+            if (frame.moduleName) {
+                this.moduleCache[frame.moduleName] = exports;
+            }
+    
+            this.state.push(exports);
         }
     }
 
@@ -405,5 +501,14 @@ export abstract class InstructionSet
         const a = this.state.pop();
     
         this.state.push(a - b);
+    }
+
+    protected __op_swap(arg: any): void
+    {
+        const b = this.state.pop();
+        const a = this.state.pop();
+    
+        this.state.push(b);
+        this.state.push(a);
     }
 }

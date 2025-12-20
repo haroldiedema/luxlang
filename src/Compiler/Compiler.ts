@@ -11,9 +11,13 @@ export class Compiler
 
     private program: Program = {
         instructions: [],
-        metadata:     {
+        references:   {
             functions: {},
             events:    {},
+        },
+        exported:     {
+            functions: [],
+            variables: [],
         },
     };
 
@@ -29,9 +33,13 @@ export class Compiler
     {
         this.program = {
             instructions: [],
-            metadata:     {
+            references:   {
                 functions: {},
                 events:    {},
+            },
+            exported:     {
+                functions: [],
+                variables: [],
             },
         };
 
@@ -42,7 +50,7 @@ export class Compiler
             this.visit(stmt);
         }
 
-        this.emit(Opcode.HALT);
+        this.emit(Opcode.RET);
 
         return this.program;
     }
@@ -64,6 +72,13 @@ export class Compiler
             case 'ThisExpression':
                 this.emit(Opcode.LOAD, 'this');
                 break;
+
+            case 'ImportStatement': {
+                const moduleName = (node as AST.ImportStatement).moduleName;
+                this.emit(Opcode.IMPORT, moduleName); // Import the module.
+                this.emit(Opcode.STORE, moduleName);  // Store the public exports of the module in a variable.
+                break;
+            }
 
             case 'ReturnStatement':
                 const ret = node as AST.ReturnStatement;
@@ -243,27 +258,20 @@ export class Compiler
 
     private visitIfStatement(node: AST.IfStatement)
     {
-        // 1. Compile Condition
         this.visit(node.test);
 
-        // 2. Emit Jump-If-False (Placeholder)
         const jumpToElseIndex = this.emit(Opcode.JMP_IF_FALSE, -1);
 
-        // 3. Compile "Then" Block
         this.visit(node.consequent);
 
-        // 4. Emit Jump to End (to skip the Else block)
         const jumpToEndIndex = this.emit(Opcode.JMP, -1);
 
-        // 5. Patch the JMP_IF_FALSE to point to here (Start of Else)
         this.patch(jumpToElseIndex, this.program.instructions.length);
 
-        // 6. Compile "Else" Block (if it exists)
         if (node.alternate) {
             this.visit(node.alternate);
         }
 
-        // 7. Patch the JMP to point to here (End of If/Else)
         this.patch(jumpToEndIndex, this.program.instructions.length);
     }
 
@@ -287,7 +295,7 @@ export class Compiler
         }
 
         const funcName = (node.callee as AST.Identifier).value;
-        const funcAddr = this.program.metadata.functions[funcName];
+        const funcAddr = this.program.references.functions[funcName];
 
         this.emit(Opcode.CALL, {name: funcName, addr: funcAddr?.address, args: node.arguments.length});
     }
@@ -338,6 +346,17 @@ export class Compiler
         if (node.left.type === 'Identifier') {
             this.visit(node.right);
             this.emit(Opcode.STORE, (node.left as AST.Identifier).value);
+
+            if (node.isPublic) {
+                const varName: string = (node.left as AST.Identifier).value;
+                this.program.exported.variables.push(varName);
+
+                this.emit(Opcode.LOAD, varName);
+                this.emit(Opcode.DUP); // Duplicate value for export
+                this.emit(Opcode.CONST, varName);
+                this.emit(Opcode.SWAP);
+                this.emit(Opcode.EXPORT);
+            }
             return;
         }
 
@@ -420,14 +439,25 @@ export class Compiler
             return;
         }
 
+        // 1. Emit Jump: Skip over function bodies
         const jumpOverIndex = this.emit(Opcode.JMP, -1);
 
+        // 2. Compile Function Bodies
         for (const func of functions) {
-            this.program.metadata.functions[func.name.value] = {
-                address: this.program.instructions.length,
+            const addr = this.program.instructions.length;
+
+            // Register address for internal compile-time resolution
+            this.program.references.functions[func.name.value] = {
+                address: addr,
                 numArgs: func.params.length,
             };
 
+            // Metadata: Register export if public
+            if (func.isPublic) {
+                this.program.exported.functions.push(func.name.value);
+            }
+
+            // Store args (Standard body compilation)
             const params: string[] = [];
             const instrStartIndex  = this.program.instructions.length;
 
@@ -441,6 +471,7 @@ export class Compiler
 
             this.program.instructions[instrStartIndex].comment = `DECL ${func.name.value}(${params.reverse().join(', ')})`;
 
+            // Ensure return
             const lastStmt = func.body.body[func.body.body.length - 1];
             if (! lastStmt || lastStmt.type !== 'ReturnStatement') {
                 this.emit(Opcode.CONST, null);
@@ -448,7 +479,35 @@ export class Compiler
             }
         }
 
+        // 3. Patch Jump: Begin "Main Script" execution
         this.patch(jumpOverIndex, this.program.instructions.length);
+
+        // 4. Runtime Initialization (OPTIMIZED)
+        // Only generate opcodes for functions that need to be exported.
+        for (const func of functions) {
+            if (!func.isPublic) {
+                continue;
+            }
+
+            const funcName = func.name.value;
+            const ref      = this.program.references.functions[funcName];
+
+            // A. Create the Function Object
+            this.emit(Opcode.MAKE_FUNCTION, {
+                name: funcName,
+                addr: ref.address,
+                args: ref.numArgs
+            });
+
+            // B. Store it locally (so "public fn foo" is also available as "foo" in the script)
+            this.emit(Opcode.DUP);
+            this.emit(Opcode.STORE, funcName);
+
+            // C. Export it
+            this.emit(Opcode.CONST, funcName);
+            this.emit(Opcode.SWAP);
+            this.emit(Opcode.EXPORT);
+        }
     }
 
     private hoistEventHooks(program: AST.Script)
@@ -462,7 +521,7 @@ export class Compiler
         const jumpOverIndex = this.emit(Opcode.JMP, -1);
 
         for (const hook of hooks) {
-            this.program.metadata.events[hook.name.value] = {
+            this.program.references.events[hook.name.value] = {
                 address: this.program.instructions.length,
                 numArgs: hook.params.length,
             };

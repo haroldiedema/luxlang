@@ -17,7 +17,7 @@ const tests = [
             '00000008 ADD                                             // (3:11)',
             '00000009 CALL         {name: "print", addr: , args: 1}   // (3:11)',
             '00000010 POP                                             // (3:11)',
-            '00000011 HALT                                            // (3:11)',
+            '00000011 RET                                             // (3:11)',
         ],
     },
     {
@@ -39,7 +39,7 @@ const tests = [
             '00000012 LOAD         "result"                                            // (5:7)',
             '00000013 CALL         {name: "print", addr: , args: 1}                    // (5:7)',
             '00000014 POP                                                              // (5:7)',
-            '00000015 HALT                                                             // (5:7)',
+            '00000015 RET                                                              // (5:7)',
         ],
     },
     {
@@ -60,7 +60,7 @@ const tests = [
             '00000011 CONST        0                                  // (5:5)',
             '00000012 CALL         {name: "print", addr: , args: 1}   // (5:5)',
             '00000013 POP                                             // (5:5)',
-            '00000014 HALT                                            // (5:5)',
+            '00000014 RET                                             // (5:5)',
         ],
     },
     {
@@ -78,7 +78,7 @@ const tests = [
             '00000008 GET_PROP     "arr"                              // (2:7)',
             '00000009 CALL         {name: "print", addr: , args: 1}   // (2:7)',
             '00000010 POP                                             // (2:7)',
-            '00000011 HALT                                            // (2:7)',
+            '00000011 RET                                             // (2:7)',
         ],
     },
     {
@@ -127,7 +127,7 @@ const tests = [
             '00000022 LOAD         "result"                                                    // (8:7)',
             '00000023 CALL         {name: "print", addr: , args: 1}                            // (8:7)',
             '00000024 POP                                                                      // (8:7)',
-            '00000025 HALT                                                                     // (8:7)',
+            '00000025 RET                                                                      // (8:7)',
         ],
     },
     {
@@ -141,7 +141,7 @@ const tests = [
             '00000004 POP                                                                 // (2:5)',
             '00000005 CONST                                                               // (2:5)',
             '00000006 RET                                                                 // (2:5)',
-            '00000007 HALT                                                                // (1:1)'
+            '00000007 RET                                                                 // (1:1)'
         ],
     }
 ];
@@ -156,4 +156,20 @@ describe('Compiler', () => {
             expect(actualLines).toEqual(test.code);
         });
     }
+
+    it('should put public functions and variables in the program metadata', () => {
+        const program = Compiler.compile(`
+public x = 10
+y = 20
+
+public fn greet(name):
+    return "Hello, " + name
+    
+fn farewell(name):
+    return "Goodbye, " + name
+`);
+
+        expect(program.exported.functions).toEqual(['greet']);
+        expect(program.exported.variables).toEqual(['x']);
+    });
 });

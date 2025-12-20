@@ -1,9 +1,12 @@
-import {TokenPosition} from '../Tokenizer/index.js';
+import { TokenPosition } from '../Tokenizer/index.js';
 
 export enum Opcode
 {
     HALT          = 'HALT',   // Stop execution
     CONST         = 'CONST',  // Push a value onto the stack
+    SWAP          = 'SWAP',   // Swap top two values on the stack
+    EXPORT        = 'EXPORT', // Mark top of stack for export (2 values: name, value)
+    IMPORT        = 'IMPORT', // Import a module (arg: module name)
 
     // Arithmetic
     ADD           = 'ADD',

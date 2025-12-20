@@ -1,10 +1,10 @@
-import {describe, expect, it}                                         from 'vitest';
-import {Compiler, Program, VirtualMachine, VirtualMachineOptions} from '../../dist/index.js';
+import { describe, expect, it }                                     from 'vitest';
+import { Compiler, Program, VirtualMachine, VirtualMachineOptions } from '../../dist/index.js';
 
 function createVM(code: string, options: VirtualMachineOptions = {}): VirtualMachine
 {
     const program: Program = Compiler.compile(code);
-    const vm                      = new VirtualMachine(program, Object.assign({throwOnError: true}, options));
+    const vm               = new VirtualMachine(program, Object.assign({throwOnError: true}, options));
 
     vm.registerNative('fail', () => {
         throw new Error('Native function "fail" was called.');
@@ -14,7 +14,7 @@ function createVM(code: string, options: VirtualMachineOptions = {}): VirtualMac
 }
 
 describe('VirtualMachine', () => {
-    it('should pause execution when budget is exhausted.', () => {
+    it('should pause execution when budget is exhausted', () => {
         const buffer: any[] = [];
         const vm            = createVM(`iterations = 0
 fn loop():
@@ -35,7 +35,7 @@ loop()
         expect(buffer.length).toBeGreaterThan(0);
     });
 
-    it('should throw runtime errors if throwOnError is enabled.', () => {
+    it('should throw runtime errors if throwOnError is enabled', () => {
         const vm = createVM(`fn causeError():
     fail() // Native function.
 causeError()
@@ -45,7 +45,7 @@ causeError()
         expect(() => vm.run(1000)).toThrow('Native function "fail" was called.');
     });
 
-    it('should not throw errors if throwOnError is disabled.', () => {
+    it('should not throw errors if throwOnError is disabled', () => {
         const vm = createVM(`fn causeError():
     fail()
 causeError()
@@ -57,7 +57,7 @@ causeError()
         expect(halted).toBe(true);
     });
 
-    it('should be able to manipulate and iterate over arrays.', () => {
+    it('should be able to manipulate and iterate over arrays', () => {
         const buffer: string[] = [];
         const vm               = createVM(`
 items = ["Sword", "Shield", "Potion"]
@@ -80,7 +80,7 @@ for item in items:
         ]);
     });
 
-    it('should handle native object method invocation correctly.', () => {
+    it('should handle native object method invocation correctly', () => {
         const buffer: string[] = [];
         const vm               = createVM(`log("Hello, " + player.getName())`, {
             variables: {
@@ -99,7 +99,7 @@ for item in items:
         expect(buffer).toEqual(['Hello, Hero123']);
     });
 
-    it('should handle custom object method invocation correctly.', () => {
+    it('should handle custom object method invocation correctly', () => {
         const buffer: string[] = [];
         const vm               = createVM(`
 player = {
@@ -124,7 +124,7 @@ log(player.greet("Bob"))
         expect(buffer).toEqual(['Hello, Bob the mighty Adventurer!']);
     });
 
-    it('Should be able to manipulate arrays', () => {
+    it('should be able to manipulate arrays', () => {
         const buffer: any = {arr: []};
         const vm          = createVM(`
 arr = [10, 20, 30]
@@ -194,7 +194,7 @@ str.toUpperCase()
         expect(() => vm.run(100)).toThrow(/Cannot set property 'toUpperCase' of object because object is not defined./);
     });
 
-    it('should serialize and deserialize VM state correctly.', () => {
+    it('should serialize and deserialize VM state correctly', () => {
         const vm = createVM(`
 player = {
     name: "Noob",
@@ -223,12 +223,12 @@ log(player.greet())
 
         vm.run(20); // Run some instructions.
         const savedState    = vm.save();
-        const expectedState = '{"state":{"hash":"-2847d97b","ip":50,"stack":{"$ref":1},"globals":{"$ref":4},"frames":{"$ref":5}},"heap":{"1":[{"$ref":2},{"$ref":3},"kill"],"2":{"type":"ScriptFunction","addr":20,"args":0},"3":{"health":100,"level":1,"class":"Adventurer","name":"Noob","greet":{"$ref":2}},"4":{"player":{"$ref":3}},"5":[]}}';
+        const expectedState = '{"state":{"hash":"58c2fedb","ip":50,"stack":{"$ref":1},"globals":{"$ref":4},"frames":{"$ref":5}},"heap":{"1":[{"$ref":2},{"$ref":3},"kill"],"2":{"type":"ScriptFunction","addr":20,"args":0},"3":{"health":100,"level":1,"class":"Adventurer","name":"Noob","greet":{"$ref":2}},"4":{"player":{"$ref":3}},"5":[]}}';
 
         expect(savedState).toBe(expectedState);
     });
 
-    it('show throw an error when state is incompatible with program', () => {
+    it('should throw an error when state is incompatible with program', () => {
         const vm = createVM(`
 a = 10
 b = 20
@@ -270,5 +270,105 @@ loop() // Start the infinite loop
 
         expect(vm.globals['sum']).toBeGreaterThan(sumAtPause);
         expect(vm.globals['sum'] % 10).toBe(0);
+    });
+
+    it('should handle imported modules properly', () => {
+        const buffer: string[] = [];
+        const mathProgram      = Compiler.compile(`public pi = 3.14`);
+
+        const vm = createVM(`
+import "math"
+
+print("Pi is approximately " + math.pi)
+        `, {
+            functions:     {
+                print: (msg: string) => buffer.push(msg),
+            },
+            resolveModule: (moduleName: string) => {
+                if (moduleName === 'math') {
+                    return mathProgram;
+                }
+                return undefined;
+            },
+            moduleCache:   new Map<string, Program>(),
+        });
+
+        const finished = vm.run(100);
+        expect(finished).toBe(true);
+        expect(buffer).toEqual(['Pi is approximately 3.14']);
+    });
+
+    it('should allow exported functions to call native functions', () => {
+        const logs: string[] = [];
+
+        // 1. The Module: Defines a public function that has side effects
+        const utilsProgram = Compiler.compile(`
+public fn greet(name):
+    // 'log' is a native function provided by the host
+    log("Hello, " + name + "!")
+`);
+
+        // 2. The Main Script: Imports the module and calls the function
+        const vm = createVM(`
+import "utils"
+
+utils.greet("World")
+        `, {
+            // Native function to capture output
+            functions: {
+                log: (msg: string) => logs.push(msg),
+            },
+            // The Linker: Maps "utils" to our compiled program
+            resolveModule: (moduleName: string) => {
+                if (moduleName === 'utils') {
+                    return utilsProgram;
+                }
+                return undefined;
+            },
+            // Ensure we start with a clean cache
+            moduleCache: new Map<string, Program>(),
+        });
+
+        // 3. Execution
+        const finished = vm.run(100);
+
+        // 4. Verification
+        expect(finished).toBe(true);
+        expect(logs).toEqual(['Hello, World!']);
+    });
+});
+
+describe('Standard Modules', () => {
+    it('should load and use the standard "math" module correctly', () => {
+        const buffer: any[] = [];
+
+        const MathLib = {
+            pi: 3.14159,
+            random: (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min,
+        };
+
+        const program = Compiler.compile(`
+import "math"
+
+on hit():
+    damage = math.random(5, 15)
+    log("You dealt " + damage + " damage!")
+`)
+
+        const vm = new VirtualMachine(program, {
+            functions: {
+                log: (msg: string) => buffer.push(msg),
+            },
+            moduleCache: {
+                math: MathLib,
+            }
+        });
+
+        const finished = vm.run(100);
+        vm.dispatch('hit');
+        vm.run(100) // Run again to process the event.
+        expect(finished).toBe(true);
+        expect(buffer.length).toBe(1);
+        expect(buffer[0]).toMatch(/You dealt (\d{1,2}) damage!/);
     });
 });

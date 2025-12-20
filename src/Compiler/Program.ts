@@ -2,10 +2,14 @@ import { Instruction } from './Opcodes.js';
 
 export type Program = {
     instructions: Instruction[];
-    metadata: {
+    references: {
         functions: Record<string, FunctionAddress>;
         events: Record<string, FunctionAddress>;
     };
+    exported: {
+        functions: string[];
+        variables: string[];
+    }
 }
 
 export type FunctionAddress = {

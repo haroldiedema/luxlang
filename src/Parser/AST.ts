@@ -4,7 +4,8 @@ export type NodeType =
     | 'Script' | 'Block' | 'FunctionDeclaration' | 'MethodDefinition' | 'IfStatement' | 'ReturnStatement'
     | 'ExpressionStatement' | 'AssignmentExpression' | 'BinaryExpression' | 'LogicalExpression' | 'UnaryExpression'
     | 'CallExpression' | 'MemberExpression' | 'ArrayExpression' | 'ObjectExpression' | 'Property'
-    | 'Identifier' | 'Literal' | 'ForStatement' | 'BreakStatement' | 'ContinueStatement' | 'ThisExpression' | 'EventHook';
+    | 'Identifier' | 'Literal' | 'ForStatement' | 'BreakStatement' | 'ContinueStatement' | 'ThisExpression' | 'EventHook'
+    | 'ImportStatement';
 
 export interface BaseStmt
 {
@@ -44,6 +45,7 @@ export interface FunctionDeclaration extends BaseStmt
     name: Identifier;
     params: Identifier[];
     body: Block;
+    isPublic: boolean;
 }
 
 export interface MethodDefinition extends BaseStmt
@@ -61,6 +63,12 @@ export interface IfStatement extends BaseStmt
     test: Expr;
     consequent: Block;
     alternate?: Block | IfStatement;
+}
+
+export interface ImportStatement extends BaseStmt
+{
+    type: 'ImportStatement';
+    moduleName: string;
 }
 
 export interface ReturnStatement extends BaseStmt
@@ -91,6 +99,7 @@ export interface AssignmentExpression extends BaseExpr
     left: Expr;
     operator: string;
     right: Expr;
+    isPublic: boolean;
 }
 
 export interface BinaryExpression extends BaseExpr
@@ -183,6 +192,7 @@ export type Stmt =
     | FunctionDeclaration
     | MethodDefinition
     | IfStatement
+    | ImportStatement
     | ReturnStatement
     | ExpressionStatement
     | ForStatement

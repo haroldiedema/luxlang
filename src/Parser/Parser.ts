@@ -39,8 +39,19 @@ export class Parser
         const token = this.stream.peek();
         if (!token) throw new Error('Unexpected EOF');
 
+        let isPublic = false;
+        if (this.match(TokenType.KEYWORD, 'public')) {
+            isPublic = true;
+        }
+
+        if (this.check(TokenType.KEYWORD, 'fn')) {
+            return this.parseFunctionDeclaration(isPublic);
+        }
+
         if (token.type === TokenType.KEYWORD) {
             switch (token.value) {
+                case 'import':
+                    return this.parseImportStatement();
                 case 'on':
                     return this.parseEventHook();
                 case 'fn':
@@ -57,7 +68,7 @@ export class Parser
                     return this.parseContinueStatement();
             }
         }
-        return this.parseExpressionStatement();
+        return this.parseExpressionStatement(isPublic);
     }
 
     private parseEventHook(): AST.EventHook
@@ -84,7 +95,7 @@ export class Parser
         return {type: 'EventHook', name, params, body, position};
     }
 
-    private parseFunctionDeclaration(): AST.FunctionDeclaration | AST.MethodDefinition
+    private parseFunctionDeclaration(isPublic: boolean = false): AST.FunctionDeclaration | AST.MethodDefinition
     {
         const position = this.currentPos();
         this.consume(TokenType.KEYWORD, 'fn');
@@ -108,9 +119,13 @@ export class Parser
         this.consume(TokenType.PUNCTUATION, ':');
         const body = this.parseBlock();
 
+        if (methodName && isPublic) {
+            throw new Error('Method definitions cannot be public. You should mark the object as public instead.');
+        }
+
         return methodName
             ? {type: 'MethodDefinition', objectName: name, methodName, params, body, position}
-            : {type: 'FunctionDeclaration', name, params, body, position};
+            : {type: 'FunctionDeclaration', name, params, body, position, isPublic};
     }
 
     private parseBlock(): AST.Block
@@ -125,6 +140,18 @@ export class Parser
         }
         this.consume(TokenType.DEDENT);
         return {type: 'Block', body: statements, position};
+    }
+
+    private parseImportStatement(): AST.ImportStatement
+    {
+        const position = this.currentPos();
+
+        this.consume(TokenType.KEYWORD, 'import');
+        const moduleNameToken = this.consume(TokenType.STRING);
+        const moduleName      = moduleNameToken.value;
+        this.consume(TokenType.NEWLINE);
+
+        return {type: 'ImportStatement', moduleName, position};
     }
 
     private parseReturnStatement(): AST.ReturnStatement
@@ -194,15 +221,15 @@ export class Parser
         return {type: 'ContinueStatement', position};
     }
 
-    private parseExpressionStatement(): AST.ExpressionStatement
+    private parseExpressionStatement(isPublic: boolean = false): AST.ExpressionStatement
     {
         const position   = this.currentPos();
-        const expression = this.parseExpression();
+        const expression = this.parseExpression(isPublic);
         if (!this.stream.isEof) this.consume(TokenType.NEWLINE);
         return {type: 'ExpressionStatement', expression, position};
     }
 
-    private parseExpression(): AST.Expr
+    private parseExpression(isPublic: boolean = false): AST.Expr
     {
         let left = this.parseLogicalOr();
 
@@ -213,6 +240,7 @@ export class Parser
                 left:     left,
                 operator: '=',
                 right:    right,
+                isPublic,
             } as AST.AssignmentExpression;
         }
 

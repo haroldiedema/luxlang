@@ -1,5 +1,4 @@
 import { Printer, Program }      from '../Compiler/index.js';
-import { Instruction, Opcode }   from '../Compiler/Opcodes.js';
 import { Deserializer }          from './Deserializer.js';
 import { InstructionSet }        from './InstructionSet.js';
 import { Serializer }            from './Serializer.js';
@@ -9,12 +8,13 @@ import { VirtualMachineOptions } from './VirtualMachineOptions.js';
 export class VirtualMachine extends InstructionSet
 {
     protected readonly program: Program;
-    protected readonly natives: Map<string, Function> = new Map();
+    protected readonly natives: Map<string, Function>;
+    protected readonly state: State;
+    protected readonly resolveModule: (moduleName: string) => Program | undefined;
+    protected readonly moduleCache: Record<string, any>;
 
-    protected state: State;
     protected throwOnError: boolean;
 
-    private readonly options: VirtualMachineOptions;
     private readonly serializer: Serializer;
     private readonly deserializer: Deserializer;
 
@@ -22,13 +22,16 @@ export class VirtualMachine extends InstructionSet
     {
         super();
 
-        this.options      = options;
-        this.serializer   = new Serializer();
-        this.deserializer = new Deserializer();
-
-        this.program      = program;
-        this.state        = new State(options.variables ?? {});
-        this.throwOnError = options.throwOnError ?? false;
+        this.program       = program;
+        this.natives       = new Map();
+        this.serializer    = new Serializer();
+        this.deserializer  = new Deserializer();
+        this.state         = new State(options.variables ?? {});
+        this.throwOnError  = options.throwOnError ?? true;
+        this.moduleCache   = options.moduleCache ?? {};
+        this.resolveModule = options.resolveModule ?? (() => {
+            throw new Error('Module resolution is not supported.');
+        });
 
         for (const [name, fn] of Object.entries(options.functions ?? {})) {
             this.registerNative(name, fn);
@@ -68,12 +71,12 @@ export class VirtualMachine extends InstructionSet
 
     public get eventNames(): string[]
     {
-        return Object.keys(this.program.metadata.events);
+        return Object.keys(this.program.references.events);
     }
 
     public dispatch(eventName: string, args: any[] = []): void
     {
-        const eventInfo = this.program.metadata.events[eventName];
+        const eventInfo = this.program.references.events[eventName];
 
         if (! eventInfo) {
             throw new Error(`Event "${eventName}" is not defined.`);
@@ -84,6 +87,9 @@ export class VirtualMachine extends InstructionSet
         }
 
         this.state.pushFrame(this.state.ip, true);
+
+        // FIXME: This overwrites the current IP, but what if multiple events are dispatched?
+        //        This needs a queue system to handle multiple events properly.
         this.state.ip = eventInfo.address;
 
         // Make sure the VM is not halted when dispatching an event.

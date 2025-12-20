@@ -39,5 +39,5 @@ export function callMethod(state: State, arg: any): void
         return;
     }
 
-    throw new Error(`CALL_METHOD: Method '${name}' not found on receiver`);
+    throw new Error(`CALL_METHOD: Method '${name}' not found on receiver (${typeof receiver})`);
 }

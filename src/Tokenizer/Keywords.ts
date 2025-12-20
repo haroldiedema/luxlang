@@ -16,4 +16,6 @@ export const Keywords = [
     'this',
     'and',
     'or',
+    'public',
+    'import',
 ] as const;

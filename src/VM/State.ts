@@ -1,7 +1,10 @@
 export type StackFrame = {
     returnIp: number;
-    locals: Record<string, any>;
     isInterrupt: boolean;
+    isModule: boolean;
+    moduleName?: string;
+    locals: Record<string, any>;
+    exports: Record<string, any>;
 }
 
 /**
@@ -12,20 +15,6 @@ export type StackFrame = {
  */
 export class State
 {
-    public static fromJSON(json: string, variables: Record<string, any> = {}): State
-    {
-        const data: any = JSON.parse(json);
-        const state     = new State();
-
-        state.ip       = data.ip;
-        state.isHalted = data.isHalted;
-        state._stack   = data.stack;
-        state._frames  = data.frames;
-        state._globals = Object.assign({}, variables, data.globals);
-
-        return state;
-    }
-
     /**
      * The instruction pointer that indicates the current execution position.
      *
@@ -49,6 +38,12 @@ export class State
         this._globals = globals;
     }
 
+    /**
+     * Import state data from an object.
+     *
+     * This overwrites the current stack, frames, and globals with the
+     * provided data.
+     */
     public import(data: { stack?: any[]; frames?: StackFrame[]; globals?: Record<string, any> })
     {
         if (data.stack) {
@@ -111,13 +106,18 @@ export class State
      *
      * @param {number} returnIp - The instruction pointer to return to after the function call.
      * @param {boolean} isInterrupt - Whether this frame is for an interrupt handler.
+     * @param {boolean} isModule - Whether this frame is for a module.
+     * @param {string} moduleName - The name of the module, if applicable.
      */
-    public pushFrame(returnIp: number, isInterrupt: boolean = false): StackFrame
+    public pushFrame(returnIp: number, isInterrupt: boolean = false, isModule: boolean = false, moduleName: string | undefined = undefined): StackFrame
     {
         const frame = {
             returnIp,
             isInterrupt,
-            locals: {},
+            isModule,
+            moduleName,
+            locals:  {},
+            exports: {},
         } satisfies StackFrame;
 
         this._frames.push(frame);
@@ -133,16 +133,6 @@ export class State
     public popFrame(): StackFrame | undefined
     {
         return this._frames.pop();
-    }
-
-    /**
-     * Returns the number of frames on the call stack.
-     *
-     * @returns {number}
-     */
-    public get frameCount(): number
-    {
-        return this._frames.length;
     }
 
     /**
