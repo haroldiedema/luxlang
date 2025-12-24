@@ -15,7 +15,7 @@ export class Serializer
             hash,
             ip:        state.ip,
             stack:     this.process(state.stack),
-            globals:   this.process(state.globals),
+            scopes:    this.process(state.scopes),
             frames:    this.process(state.frames),
             events:    this.process(events),
             sleepTime: state.sleepTime,

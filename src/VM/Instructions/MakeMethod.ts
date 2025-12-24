@@ -12,8 +12,5 @@ export function makeMethod(state: State): void
         throw new Error("Runtime Error: Cannot add method to non-blueprint.");
     }
 
-    console.log('ATTACH:', methodFunc);
-
-    // Attach it!
     blueprint.methods[methodFunc.name] = methodFunc;
 }

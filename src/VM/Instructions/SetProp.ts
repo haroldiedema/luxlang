@@ -11,7 +11,7 @@ export function setProp(state: State, arg: string): void
     const obj = state.pop();
 
     if (ForbiddenKeys.has(key)) {
-        throw new Error(`Access to property '${key}' is forbidden.`);
+        throw new Error(`Access to property "${key}" is forbidden.`);
     }
 
     if (Array.isArray(obj)) {
@@ -25,10 +25,14 @@ export function setProp(state: State, arg: string): void
     } else if (obj instanceof Map) {
         obj.set(key, val);
     } else if (obj && typeof obj === 'object') {
+        if (! obj.__is_vm_object__ && !(key in obj)) {
+            throw new Error(`Cannot create new property "${key}" on host-provided object.`);
+        }
+
         obj[key] = val;
     } else {
         const target = arg ? `'${arg}'` : 'object';
-        throw new Error(`Cannot set property '${key}' of ${target} because ${target} is not defined.`);
+        throw new Error(`Cannot set property "${key}" of "${target}" because "${target}" is not defined.`);
     }
 
     state.push(val);

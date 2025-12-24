@@ -124,7 +124,7 @@ out("Value: \{val} vs {val}")
 
 ---
 
-# Interpolation - Strings Inside Expressions
+# Interpolation with Strings Inside Expressions
 
 The tokenizer must be smart enough to ignore braces that appear inside strings *within* the interpolation expression. If it fails, it will think the string's `}` is the end of the interpolation.
 
@@ -145,7 +145,7 @@ out("Mixed: { "\{" + "\}" }")
 
 ---
 
-# Interpolation - Nested Structures (Objects)
+# Interpolation with Nested Structures (Objects)
 
 Similar to the above, the tokenizer must handle nested braces (like object literals) inside the interpolation without closing the interpolation early.
 
@@ -169,7 +169,7 @@ out("First: { nums[0] }")
 
 ---
 
-# Interpolation - Adjacent & Empty
+# Adjacent & Empty Interpolation
 
 Test how the tokenizer handles back-to-back interpolations and empty edge cases.
 
@@ -198,7 +198,7 @@ out("Math: { 10 * 10 }{ 5 + 5 }")
 
 ---
 
-# Interpolation -  Multi-line
+# Multi-line Interpolation
 
 The tokenizer must handle multi-line strings with interpolations correctly.
 

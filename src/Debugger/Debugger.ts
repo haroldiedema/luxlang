@@ -14,6 +14,7 @@ export class Debugger
         {key: 'S', name: 'Show the values currently in the stack', fn: this.showStack.bind(this)},
         {key: 'F', name: 'Show the stack frames.', fn: this.showFrames.bind(this)},
         {key: 'B', name: 'Show the bytecode surrounding the current instruction. (Hold shift to show all)', fn: this.showBytecode.bind(this)},
+        {key: 'G', name: 'Show global module scopes.', fn: this.showModuleScopes.bind(this)},
     ];
 
     private lastFrame: StackFrame | null       = null;
@@ -136,6 +137,27 @@ export class Debugger
         this.print('<gray>' + '─'.repeat(termWidth) + '</gray>');
     }
 
+    private showModuleScopes(): void
+    {
+        const modules = this.vm.state.scopes;
+
+        this.print('');
+        this.print('<yellow>Module Scopes:</yellow>');
+        Object.keys(modules).forEach(key => {
+            const program = this.vm.state.findProgramByHash(key);
+            if (! program) {
+                this.print(`<red>Could not find program for module hash: ${key}</red>`);
+                return;
+            }
+
+            this.print(`  Module: <yellow>${program.moduleName || 'MAIN'}</yellow> <gray>(${key})</gray>`);
+            Object.keys(modules[key]).forEach(varName => {
+                this.print(`    - <cyan>${varName}</cyan> : ${this.formatObject(modules[key][varName])}`);
+            });
+            this.print('');
+        });
+    }
+
     /**
      * Prompts the user for input.
      *
@@ -252,8 +274,14 @@ export class Debugger
      *
      * @private
      */
-    private formatObject(obj: any): string
+    private formatObject(obj: any, depth: number = 0): string
     {
+        depth++;
+
+        if (depth > 3) {
+            return '<red>[RECURSION]</red>';
+        }
+
         if (typeof obj === 'string') {
             return ANSI.format(`<cyan>"${obj}"</cyan>`);
         }
@@ -277,9 +305,18 @@ export class Debugger
         if (Array.isArray(obj)) {
             return [
                 `<gray>[</gray>`,
-                obj.map(v => this.formatObject(v)).join(', '),
+                obj.map(v => this.formatObject(v, depth)).join(', '),
                 `<gray>]</gray>`,
             ].join('');
+        }
+
+        if (obj && typeof obj === 'object' && typeof obj.type === 'string') {
+            switch (obj.type) {
+                case 'Blueprint':
+                    return `<blue>[Blueprint: ${obj.name || 'anonymous'}]</blue>`;
+                case 'ScriptFunction':
+                    return `<yellow>[Function: ${obj.name || 'anonymous'}]</yellow>`;
+            }
         }
 
         const result: string[] = [];
@@ -288,7 +325,8 @@ export class Debugger
                 result.push(`${key}: <gray>[Program: ${obj[key].moduleName || 'MAIN'}]</gray>`);
                 continue;
             }
-            result.push(`${key}: ${this.formatObject(obj[key])}`);
+
+            result.push(`${key}: ${this.formatObject(obj[key], depth)}`);
         }
 
         return [

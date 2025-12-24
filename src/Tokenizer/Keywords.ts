@@ -3,6 +3,7 @@ export const Keywords = [
     'on',    // Event hook: on <event> (<parameters>): \n <body>
     'if',
     'else',
+    'do',
     'while',
     'for',
     'in',
@@ -22,4 +23,6 @@ export const Keywords = [
     'wait',
     'new',
     'blueprint',
+    'extends',
+    'parent',
 ] as const;

@@ -13,4 +13,5 @@ export const Operators = {
     GREATER_EQUAL:  '>=',
     LESS_EQUAL:     '<=',
     NOT:            '!',
+    RANGE:          '..',
 } as const;

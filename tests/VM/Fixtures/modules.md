@@ -49,7 +49,7 @@ secret_value = 42
 ## FAIL
 
 ```
-The property 'secret_value' does not exist on "math_module".
+The property "secret_value" does not exist on "math_module".
 
 Source:
    3| out(math_module.pi)

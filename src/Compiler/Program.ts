@@ -1,6 +1,7 @@
 import { Instruction } from './Opcodes.js';
 
 export type Program = {
+    hash: string;
     source: string;
     moduleName?: string;
     instructions: Instruction[];
@@ -11,7 +12,7 @@ export type Program = {
     exported: {
         functions: string[];
         variables: string[];
-    }
+    };
 }
 
 export type FunctionAddress = {

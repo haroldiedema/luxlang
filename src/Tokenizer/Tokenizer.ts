@@ -165,19 +165,67 @@ export class Tokenizer
 
     private parseNumberLiteral(): boolean
     {
-        const char       = this._source[this.index];
-        const nextChar   = this._source[this.index + 1];
+        const char     = this._source[this.index];
+        const nextChar = this._source[this.index + 1];
+
+        // Check start: Digit OR Dot followed by Digit (e.g. .5)
+        // explicitly NOT matching ".." (Range) here because nextChar must be a digit
         const isDigit    = char >= '0' && char <= '9';
         const isDotStart = char === '.' && (nextChar >= '0' && nextChar <= '9');
 
-        if (! isDigit && ! isDotStart) return false;
+        if (!isDigit && !isDotStart) return false;
 
         let tempIndex = this.index;
-        let value     = '';
-        while (tempIndex < this._source.length && /[0-9.eE_]/.test(this._source[tempIndex])) {
-            value += this._source[tempIndex];
-            tempIndex++;
+        let hasDot = false; // Track if we've consumed a decimal point
+
+        // Manual loop instead of Regex to control the dot logic
+        while (tempIndex < this._source.length) {
+            const c = this._source[tempIndex];
+            const next = this._source[tempIndex + 1];
+
+            if (c >= '0' && c <= '9') {
+                tempIndex++;
+                continue;
+            }
+
+            if (c === '_') {
+                tempIndex++;
+                continue;
+            }
+
+            if (c === '.') {
+                // CRITICAL FIX: If we see a dot, check if the NEXT char is also a dot.
+                // If it is, this is a Range operator (..), so the number stops HERE.
+                if (next === '.') {
+                    break;
+                }
+
+                // Standard float logic: Only one dot allowed per number
+                if (hasDot) {
+                    break; // We found a second dot (e.g. 1.2.3), stop parsing.
+                }
+
+                hasDot = true;
+                tempIndex++;
+                continue;
+            }
+
+            if (c === 'e' || c === 'E') {
+                // Ensure exponent handling doesn't break
+                // (You might want more robust logic here to ensure a digit follows the E)
+                tempIndex++;
+                if (this._source[tempIndex] === '+' || this._source[tempIndex] === '-') {
+                    tempIndex++;
+                }
+                continue;
+            }
+
+            // If it's not a digit, dot, underscore, or exponent, we are done.
+            break;
         }
+
+        const value = this._source.substring(this.index, tempIndex);
+
         this._tokens.push(this.createToken(TokenType.NUMBER, value));
         this.advance(tempIndex - this.index);
         return true;

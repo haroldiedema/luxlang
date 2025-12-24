@@ -22,6 +22,8 @@ export type NodeType =
     | 'Identifier'
     | 'Literal'
     | 'ForStatement'
+    | 'WhileStatement'
+    | 'DoWhileStatement'
     | 'BreakStatement'
     | 'ContinueStatement'
     | 'ThisExpression'
@@ -29,7 +31,8 @@ export type NodeType =
     | 'ImportStatement'
     | 'WaitStatement'
     | 'BlueprintStatement'
-    | 'NewExpression';
+    | 'NewExpression'
+    | 'ParentMethodCallExpression';
 
 export interface BaseStmt
 {
@@ -87,12 +90,22 @@ export interface BlueprintStatement extends BaseStmt {
     params: Identifier[]; // Primary constructor parameters
     properties: { key: Identifier, value: Expr }[];
     methods: FunctionDeclaration[];
+    isPublic?: boolean;
+    parent?: Identifier;
+    parentArgs?: Expr[];
 }
 
 export interface NewExpression extends BaseExpr
 {
     type: 'NewExpression';
-    className: Identifier;
+    className: Identifier | MemberExpression;
+    arguments: Expr[];
+}
+
+export interface ParentMethodCallExpression extends BaseExpr
+{
+    type: 'ParentMethodCallExpression';
+    methodName: Identifier;
     arguments: Expr[];
 }
 
@@ -248,6 +261,18 @@ export interface ForStatement extends BaseStmt
     body: Block;
 }
 
+export interface WhileStatement extends BaseStmt {
+    type: 'WhileStatement';
+    condition: Expr;
+    body: Block;
+}
+
+export interface DoWhileStatement extends BaseStmt {
+    type: 'DoWhileStatement';
+    body: Block;
+    condition: Expr;
+}
+
 export type Stmt =
     Script
     | Block
@@ -259,6 +284,8 @@ export type Stmt =
     | ReturnStatement
     | ExpressionStatement
     | ForStatement
+    | WhileStatement
+    | DoWhileStatement
     | BreakStatement
     | ContinueStatement
     | WaitStatement
@@ -278,4 +305,5 @@ export type Expr =
     | Identifier
     | Literal
     | ThisExpression
-    | NewExpression;
+    | NewExpression
+    | ParentMethodCallExpression;

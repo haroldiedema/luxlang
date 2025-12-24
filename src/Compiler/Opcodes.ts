@@ -8,7 +8,8 @@ export enum Opcode
     EXPORT         = 'EXPORT', // Mark top of stack for export (2 values: name, value)
     IMPORT         = 'IMPORT', // Import a module (arg: module name)
     WAIT           = 'WAIT',   // Pause execution for X milliseconds (stack: [duration])
-    NEW            = 'NEW',    // Stack: [Blueprint, arg1, arg2...] -> Instance
+    NEW            = 'NEW',    // Stack: [arg1, arg2..., Blueprint] -> Instance
+    SUPER          = 'SUPER',  // Invoke parent method ({name: string, args: number})
 
     // Arithmetic
     ADD            = 'ADD',
@@ -45,10 +46,12 @@ export enum Opcode
     // Functions
     CALL           = 'CALL',   // { name: string, addr: number, args: number }
     CALL_METHOD    = 'CALL_METHOD', // { name: string, args: number }
+    CALL_PARENT    = 'CALL_PARENT', // arg: number of args
     RET            = 'RET',
 
     // Collections
     MAKE_ARRAY     = 'MAKE_ARRAY',  // Stack: [arg1, arg2...] -> Array
+    MAKE_RANGE     = 'MAKE_RANGE',  // Stack: [start, end] -> Range
     MAKE_OBJECT    = 'MAKE_OBJECT', // Stack: [key1, val1...] -> Object
     MAKE_FUNCTION  = 'MAKE_FUNCTION', // { name: string, addr: number, args: number }
     MAKE_BLUEPRINT = 'MAKE_BLUEPRINT', // [ name, startIndex ]

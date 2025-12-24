@@ -9,8 +9,10 @@ export class Compiler
     private loopStack: LoopContext[]               = [];
     private currentPos: TokenPosition | null       = null;
     private pendingCalls: Record<string, number[]> = {};
+    private currentBlueprintName: string | null    = null;
 
     private program: Program = {
+        hash:         '',
         source:       '',
         moduleName:   undefined,
         instructions: [],
@@ -34,19 +36,8 @@ export class Compiler
 
     private compile(moduleName: string | undefined, source: string, program: AST.Script): Program
     {
-        this.program = {
-            source,
-            moduleName,
-            instructions: [],
-            references:   {
-                functions: {},
-                events:    {},
-            },
-            exported:     {
-                functions: [],
-                variables: [],
-            },
-        };
+        this.program.moduleName = moduleName;
+        this.program.source     = source;
 
         this.hoistFunctions(program);
         this.hoistEventHooks(program);
@@ -56,6 +47,8 @@ export class Compiler
         }
 
         this.emit(Opcode.RET);
+
+        this.program.hash = this.createHash();
 
         return this.program;
     }
@@ -140,6 +133,14 @@ export class Compiler
                 this.visitForStatement(node as AST.ForStatement);
                 break;
 
+            case 'WhileStatement':
+                this.visitWhileStatement(node as AST.WhileStatement);
+                break;
+
+            case 'DoWhileStatement':
+                this.visitDoWhileStatement(node as AST.DoWhileStatement);
+                break;
+
             case 'BreakStatement':
                 this.visitBreakStatement(node as AST.BreakStatement);
                 break;
@@ -178,6 +179,10 @@ export class Compiler
 
             case 'NewExpression':
                 this.visitNewExpression(node as AST.NewExpression);
+                break;
+
+            case 'ParentMethodCallExpression':
+                this.visitParentMethodCallExpression(node as AST.ParentMethodCallExpression);
                 break;
 
             default:
@@ -233,6 +238,9 @@ export class Compiler
             case 'not in':
                 this.emit(Opcode.IN);
                 this.emit(Opcode.NOT);
+                break;
+            case '..':
+                this.emit(Opcode.MAKE_RANGE);
                 break;
             default:
                 throw new Error(`Compiler: Unknown binary operator ${node.operator}`);
@@ -387,19 +395,19 @@ export class Compiler
 
         // 3. Setup Accumulator
         this.emit(Opcode.MAKE_OBJECT);
-        this.emit(Opcode.STORE, ["$comp_obj_result", true]);
+        this.emit(Opcode.STORE, ['$comp_obj_result', true]);
 
         // 4. Loop Setup
         this.visit(node.collection);
         this.emit(Opcode.ITER_INIT);
 
         const iterNextIndex = this.program.instructions.length;
-        const jumpToExit = this.emit(Opcode.ITER_NEXT, -1);
+        const jumpToExit    = this.emit(Opcode.ITER_NEXT, -1);
 
         this.emit(Opcode.STORE, [uniqueIterName, true]);
 
         // 5. Body: Set Property
-        this.emit(Opcode.LOAD, "$comp_obj_result"); // Target Object
+        this.emit(Opcode.LOAD, '$comp_obj_result'); // Target Object
 
         this.visit(patchedKey);                     // Key (Evaluated!)
         this.visit(patchedValue);                   // Value (Evaluated!)
@@ -414,7 +422,7 @@ export class Compiler
         this.emit(Opcode.POP);
 
         // 7. Result
-        this.emit(Opcode.LOAD, "$comp_obj_result");
+        this.emit(Opcode.LOAD, '$comp_obj_result');
     }
 
     private visitMemberExpression(node: AST.MemberExpression)
@@ -555,6 +563,44 @@ export class Compiler
         }
     }
 
+    private visitWhileStatement(node: AST.WhileStatement) {
+        const startAddress = this.program.instructions.length;
+
+        // 1. Evaluate condition
+        this.visit(node.condition);
+
+        // 2. Jump to end if false
+        const exitJump = this.emit(Opcode.JMP_IF_FALSE, 0);
+
+        // 3. Compile body
+        // Note: If you have break/continue, push startAddress to continueStack
+        // and exitJump to breakStack here.
+        this.visit(node.body);
+
+        // 4. Loop back to condition
+        this.emit(Opcode.JMP, startAddress);
+
+        // 5. Patch the exit jump
+        this.patch(exitJump, this.program.instructions.length);
+    }
+
+    private visitDoWhileStatement(node: AST.DoWhileStatement) {
+        const startAddress = this.program.instructions.length;
+
+        // 1. Compile body first
+        this.visit(node.body);
+
+        // 2. Evaluate condition
+        const conditionAddress = this.program.instructions.length;
+        this.visit(node.condition);
+
+        // 3. Jump back to start if true
+        this.emit(Opcode.JMP_IF_TRUE, startAddress);
+
+        // Note: If you have 'break', you'd patch it to the current
+        // program length here.
+    }
+
     private visitBreakStatement(node: AST.BreakStatement)
     {
         if (this.loopStack.length === 0) {
@@ -579,34 +625,92 @@ export class Compiler
 
     private visitBlueprintStatement(node: AST.BlueprintStatement)
     {
-        const jumpIndex = this.emit(Opcode.JMP, 0);
+        const jumpIndex             = this.emit(Opcode.JMP, 0);
         const constructorStartIndex = this.program.instructions.length;
 
-        for (let i = node.params.length - 1; i >= 0; i--) {
-            this.emit(Opcode.STORE, [node.params[i].value, true]);
+        this.currentBlueprintName = node.name.value;
+
+        let constructorParams = node.params;
+
+        const initMethod    = node.methods.find(m => m.name.value === 'init');
+        const useInitParams = node.params.length === 0 && initMethod;
+
+        // AMBIGUITY CHECK
+        if (node.params.length > 0 && initMethod && initMethod.params.length > 0) {
+            throw new Error(
+                `Blueprint '${node.name.value}' has an ambiguous constructor definition.\n\n` +
+                `It defines parameters in the blueprint header (${node.params.length}) AND in the 'init' method (${initMethod.params.length}).\n` +
+                `Please use only one style:\n` +
+                `  1. Header params: blueprint ${node.name.value}(...) + fn init()\n` +
+                `  2. Init params:   blueprint ${node.name.value} + fn init(...)`,
+            );
+        }
+
+        if (useInitParams) {
+            constructorParams = initMethod.params;
+        }
+
+        for (let i = constructorParams.length - 1; i >= 0; i--) {
+            this.emit(Opcode.STORE, [constructorParams[i].value, true]);
+        }
+
+        // Call Parent Constructor if applicable.
+        if (node.parent) {
+            this.emit(Opcode.LOAD, 'this'); // Push 'this'
+            for (const arg of node.parentArgs ?? []) {
+                this.visit(arg); // Push Args
+            }
+            this.emit(Opcode.LOAD, node.parent.value); // Push Parent Blueprint
+            this.emit(Opcode.CALL_PARENT, node.parentArgs?.length ?? 0);
+            this.emit(Opcode.POP); // Pop the 'this' returned by RET
         }
 
         // Initialize properties.
         for (const prop of node.properties) {
-            this.emit(Opcode.LOAD, "this");          // 1. Object
+            this.emit(Opcode.LOAD, 'this');          // 1. Object
             this.emit(Opcode.CONST, prop.key.value); // 2. Key (Emit this BEFORE visiting value)
             this.visit(prop.value);                  // 3. Value
             this.emit(Opcode.SET_PROP);               // or SET_PROP
             this.emit(Opcode.POP);
         }
 
-        this.emit(Opcode.LOAD, "this");
+        if (initMethod) {
+            let argCount = constructorParams.length;
+
+            if (useInitParams) {
+                for (const param of constructorParams) {
+                    this.emit(Opcode.LOAD, param.value);
+                }
+                argCount = constructorParams.length;
+            }
+
+            this.emit(Opcode.LOAD, 'this');
+            this.emit(Opcode.CALL_METHOD, {
+                name: 'init',
+                args: argCount,
+            });
+
+            this.emit(Opcode.POP); // Discard init return value.
+        }
+
+        this.emit(Opcode.LOAD, 'this');
         this.emit(Opcode.RET);
 
         const constructorEndIndex = this.program.instructions.length;
         this.patch(jumpIndex, constructorEndIndex);
 
-        this.emit(Opcode.MAKE_BLUEPRINT, [node.name.value, constructorStartIndex, node.params.length]);
-        this.emit(Opcode.STORE, [node.name.value, true]);
+        // Push the parent (or NULL) on the stack. Consumed by MAKE_BLUEPRINT.
+        if (node.parent) {
+            this.emit(Opcode.LOAD, node.parent.value);
+        } else {
+            this.emit(Opcode.CONST, null);
+        }
+
+        this.emit(Opcode.MAKE_BLUEPRINT, [node.name.value, constructorStartIndex, constructorParams.length]);
+        this.emit(Opcode.STORE, [node.name.value]);
 
         // Attach methods.
         for (const method of node.methods) {
-            // Compile the method body
             const methodJump = this.emit(Opcode.JMP, 0);
             const methodAddr = this.program.instructions.length;
 
@@ -618,7 +722,7 @@ export class Compiler
             this.visit(method.body);
 
             // Ensure void return
-            if (this.program.instructions[this.program.instructions.length-1].op !== Opcode.RET) {
+            if (this.program.instructions[this.program.instructions.length - 1].op !== Opcode.RET) {
                 this.emit(Opcode.CONST, 0); // Void return
                 this.emit(Opcode.RET);
             }
@@ -627,10 +731,22 @@ export class Compiler
             this.patch(methodJump, methodEnd);
 
             // Attach Method to Blueprint
-            // Stack: []
             this.emit(Opcode.LOAD, node.name.value); // Load Blueprint
             this.emit(Opcode.MAKE_FUNCTION, {name: method.name.value, addr: methodAddr, args: method.params.length});
-            this.emit(Opcode.MAKE_METHOD); // Pull MAKE_FUNCTION info from the stack and glue it to the blueprint.
+            this.emit(Opcode.MAKE_METHOD); // Pulls MAKE_FUNCTION & bp from the stack and glue it to the blueprint.
+        }
+
+        // Clear current blueprint context.
+        this.currentBlueprintName = null;
+
+        if (node.isPublic) {
+            this.program.exported.functions.push(node.name.value);
+            this.emit(Opcode.LOAD, node.name.value);
+            this.emit(Opcode.DUP);
+            this.emit(Opcode.STORE, [node.name.value]);
+            this.emit(Opcode.CONST, node.name.value);
+            this.emit(Opcode.SWAP);
+            this.emit(Opcode.EXPORT);
         }
     }
 
@@ -640,12 +756,23 @@ export class Compiler
             this.visit(arg);
         }
 
-        // 2. Push Blueprint (Class Name)
-        // We load it LAST so it sits on top of the stack for the VM to pop.
-        this.emit(Opcode.LOAD, node.className.value);
-
-        // 3. Emit NEW
+        this.visit(node.className);
         this.emit(Opcode.NEW, node.arguments.length);
+    }
+
+    private visitParentMethodCallExpression(node: AST.ParentMethodCallExpression)
+    {
+        this.emit(Opcode.LOAD, 'this');
+
+        for (const arg of node.arguments) {
+            this.visit(arg);
+        }
+
+        this.emit(Opcode.SUPER, {
+            name:   node.methodName.value,
+            args:   node.arguments.length,
+            callee: this.currentBlueprintName,
+        });
     }
 
     private hoistFunctions(program: AST.Script)
@@ -779,42 +906,30 @@ export class Compiler
 
     private replaceIdentifier(node: any, oldName: string, newName: string): void
     {
-        if (!node || typeof node !== 'object') return;
+        if (! node || typeof node !== 'object') return;
 
-        // 1. STOP CONDITION: Nested Scope Shadowing
-        // If we encounter a nested loop or function that defines the same variable,
-        // we stop traversing this branch because the inner scope handles its own 'i'.
-
-        // Check Nested For-Loop
         if (node.type === 'ForStatement' && node.iterator?.value === oldName) {
-            // We still traverse the collection (e.g. for i in [i, i+1]),
-            // but NOT the body or the iterator definition.
             this.replaceIdentifier(node.collection, oldName, newName);
             return;
         }
 
-        // Check Function Definition
         if ((node.type === 'FunctionDeclaration' || node.type === 'ScriptFunction') &&
             node.params?.some((p: any) => p.value === oldName)) {
             return;
         }
 
-        // 2. REPLACEMENT LOGIC
         if (node.type === 'Identifier' && node.value === oldName) {
             node.value = newName;
             return;
         }
 
-        // 3. RECURSION
         for (const key in node) {
             if (key === 'position') continue;
 
-            // SAFETY: Do not rename object properties (obj.i)
-            if (node.type === 'MemberExpression' && key === 'property' && !node.computed) {
+            if (node.type === 'MemberExpression' && key === 'property' && ! node.computed) {
                 continue;
             }
 
-            // SAFETY: Do not rename object keys ({ i: 1 })
             if (node.type === 'Property' && key === 'key') {
                 continue;
             }
@@ -827,6 +942,35 @@ export class Compiler
                 this.replaceIdentifier(child, oldName, newName);
             }
         }
+    }
+
+    /**
+     * Creates a 32-character hash of the program source.
+     *
+     * @private
+     */
+    private createHash(): string
+    {
+        const str = (this.program.moduleName || '<main>') + this.program.source;
+
+        let h1 = 1779033703, h2 = 3144134277, h3 = 1013904242, h4 = 2773480762;
+
+        for (let i = 0, k; i < str.length; i++) {
+            k  = str.charCodeAt(i);
+            h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
+            h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+            h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
+            h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+        }
+
+        h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+        h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+        h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+        h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+
+        return [h1, h2, h3, h4]
+            .map(h => (h >>> 0).toString(16).padStart(8, '0'))
+            .join('');
     }
 }
 

@@ -7,7 +7,7 @@ export function jmpIfFalse(state: State, arg: number): void
 {
     const condition = state.pop();
 
-    if (!condition) {
+    if (!state.isTruthy(condition)) {
         state.ip = arg;
     }
 }

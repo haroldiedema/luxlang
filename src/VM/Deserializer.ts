@@ -1,4 +1,4 @@
-import {State} from './State.js';
+import { State } from './State.js';
 
 export class Deserializer
 {
@@ -17,10 +17,10 @@ export class Deserializer
 
         state.ip = data.state.ip;
         state.import({
-            globals: this.restore(data.state.globals),
-            stack:   this.restore(data.state.stack),
-            frames:  this.restore(data.state.frames),
-            events:  this.restore(data.state.events),
+            scopes: this.restore(data.state.scopes),
+            stack:  this.restore(data.state.stack),
+            frames: this.restore(data.state.frames),
+            events: this.restore(data.state.events),
         });
     }
 

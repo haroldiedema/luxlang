@@ -18,6 +18,8 @@ type VMEvent = {
     args: any[];
 }
 
+type ModuleScopeMap = Record<string, Record<string, any>>;
+
 /**
  * Represents the current state of the virtual machine.
  *
@@ -62,15 +64,17 @@ export class State
     public wallTime: number = 0;
 
     private _program: Program;
-    private _stack: any[]                 = [];
-    private _frames: StackFrame[]         = [];
-    private _globals: Record<string, any> = {};
-    private _eventQueue: VMEvent[]        = [];
+    private _programs: Record<string, Program> = {};
+    private _stack: any[]                      = [];
+    private _frames: StackFrame[]              = [];
+    private _eventQueue: VMEvent[]             = [];
+    private _scopes: ModuleScopeMap            = {};
 
     constructor(program: Program, globals: Record<string, any> = {})
     {
-        this._program = program; // Root (main) program.
-        this._globals = globals;
+        this._program                = program; // Root (main) program.
+        this._programs[program.hash] = program; // Register main program.
+        this._scopes[program.hash]   = globals; // Global scope for main program.
     }
 
     /**
@@ -78,6 +82,7 @@ export class State
      */
     public get currentProgram(): Program
     {
+        // TODO: Replace with hash lookup.
         return this.topFrame?.program ?? this._program;
     }
 
@@ -89,8 +94,9 @@ export class State
      */
     public import(data: {
         stack?: any[];
+        programs?: Record<string, Program>,
         frames?: StackFrame[];
-        globals?: Record<string, any>,
+        scopes?: Record<string, any>,
         events?: VMEvent[],
         sleepTime?: number
         deltaTime?: number
@@ -100,12 +106,16 @@ export class State
             this._stack = data.stack;
         }
 
+        if (data.programs) {
+            this._programs = data.programs;
+        }
+
         if (data.frames) {
             this._frames = data.frames;
         }
 
-        if (data.globals) {
-            this._globals = data.globals;
+        if (data.scopes) {
+            this._scopes = data.scopes;
         }
 
         if (data.events) {
@@ -131,14 +141,19 @@ export class State
         return this._frames;
     }
 
-    public get globals(): Record<string, any>
+    public get scopes(): Record<string, any>
     {
-        return this._globals;
+        return this._scopes;
     }
 
     public get eventQueue(): VMEvent[]
     {
         return this._eventQueue;
+    }
+
+    public get programs(): Record<string, Program>
+    {
+        return this._programs;
     }
 
     /**
@@ -173,10 +188,21 @@ export class State
      */
     public pushFrame(returnIp: number, options: PushFrameOptions = {}): StackFrame
     {
+        const scopeName = (options.program || this.currentProgram).hash;
+        if (typeof this._scopes[scopeName] === 'undefined') {
+            this._scopes[scopeName] = {};
+        }
+
+        if (typeof this._programs[scopeName] === 'undefined') {
+            this._programs[scopeName] = options.program || this.currentProgram;
+        } else if (options.program && this._programs[scopeName] !== options.program) {
+            throw new Error(`Program hash collision detected: ${scopeName}`);
+        }
+
         const frame = {
             returnIp,
             ip:          this.ip,
-            program:     options.program ?? this.currentProgram,
+            program:     options.program ?? this.currentProgram, // TODO: Replace with hash.
             name:        options.name ?? '<anonymous>',
             isInterrupt: options.isInterrupt ?? false,
             isModule:    options.isModule ?? false,
@@ -236,8 +262,16 @@ export class State
             }
         }
 
-        if (name in this._globals) {
-            return this._globals[name];
+        const scope = this._scopes[this.currentProgram.hash] || {};
+
+        // Global scope of the module.
+        if (name in scope) {
+            return scope[name];
+        }
+
+        // Global scope of the main program.
+        if (name in this._scopes[this._program.hash]) {
+            return this._scopes[this._program.hash][name];
         }
 
         throw new Error(`The variable "${name}" is not defined.`);
@@ -253,11 +287,13 @@ export class State
      */
     public setVar(name: string, value: any, local: boolean = false)
     {
-        if (this._frames.length > 0) {
+        const scope: Record<string, any> = this._scopes[this.currentProgram.hash] || {};
+
+        if (this.topFrame && ! this.topFrame.isModule) {
             const locals = this._frames[this._frames.length - 1].locals;
 
-            if (!local && typeof locals[name] === 'undefined' && typeof this._globals[name] !== 'undefined') {
-                this._globals[name] = value;
+            if (! local && typeof locals[name] === 'undefined' && typeof scope[name] !== 'undefined') {
+                scope[name] = value;
                 return;
             }
 
@@ -265,7 +301,7 @@ export class State
             return;
         }
 
-        this._globals[name] = value;
+        scope[name] = value;
     }
 
     /**
@@ -290,6 +326,35 @@ export class State
 
         // 2. We are in the Main Loop (Global Scope). Check global timer.
         return this.sleepTime > 0;
+    }
+
+    public findProgramByHash(hash: string): Program | null
+    {
+        return this._programs[hash] || null;
+    }
+
+    /**
+     * A helper method used inside instructions to determine the truthiness of a value.
+     */
+    public isTruthy(value: any): boolean
+    {
+        if (value === null || value === undefined || value === false) {
+            return false;
+        }
+
+        if (Array.isArray(value)) {
+            return value.length > 0;
+        }
+
+        if (typeof value === 'number') {
+            return value !== 0;
+        }
+
+        if (typeof value === 'string') {
+            return value.length > 0;
+        }
+
+        return true;
     }
 }
 

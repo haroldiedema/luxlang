@@ -22,7 +22,7 @@ export class Fixture
             const fixtures = FixtureParser.parse(fixtureFile);
 
             for (const fixtureInfo of fixtures) {
-                new Fixture(fixtureFile, fixtureInfo).run();
+                new Fixture(fixtureFile, fixtureInfo).runVirtualMachine();
             }
         });
     }
@@ -69,11 +69,9 @@ export class Fixture
         }
     }
 
-    public run(): void
+    public runVirtualMachine(): void
     {
         it(this.title, () => {
-            const vm = this.createVirtualMachine();
-
             if (this.fail && (this.passText || this.passJson)) {
                 throw new Error(`Fixture cannot have both FAIL and PASS expectations: ${this.filename}`);
             }
@@ -81,9 +79,11 @@ export class Fixture
             const msg = `\nFixture: ${this.filename}\nTest: ${this.title}\n`;
 
             if (this.fail) {
-                expect(() => vm.run(), msg).toThrow(this.fail);
+                expect(() => this.createVirtualMachine().run(), msg).toThrow(this.fail);
                 return;
             }
+
+            const vm = this.createVirtualMachine();
 
             if (this.passText) {
                 vm.run();
@@ -105,7 +105,7 @@ export class Fixture
     {
         return new VirtualMachine(Compiler.compile(this.code), {
             throwOnError:  true,
-            budget:        100_000_000,
+            budget:        1_000_000,
             colors:        false,
             resolveModule: (name: string) => {
                 return this.modules[name] ?? undefined;
@@ -114,6 +114,16 @@ export class Fixture
                 'out': (...args: any[]) => {
                     this.output.push(...args);
                 },
+            },
+            variables: {
+                sandbox: {
+                    a_number: 42,
+                    a_string: "Hello, World!",
+                    a_boolean: true,
+                    a_null:    null,
+                    an_array:  [1, 2, 3],
+                    an_object: {key: "value"},
+                }
             },
             ...options,
             ...this.options,
@@ -363,7 +373,7 @@ class FixtureParser
             while (this.lineIndex < this.lines.length
                 && ! this.lines[this.lineIndex].startsWith('#')
                 && ! this.lines[this.lineIndex].startsWith('```')
-                && ! this.lines[this.lineIndex].startsWith('> ')
+                && ! this.lines[this.lineIndex].startsWith('> - ')
                 && ! this.lines[this.lineIndex].startsWith('---')
                 ) {
                 textLines.push(this.lines[this.lineIndex]);
@@ -451,8 +461,8 @@ type FixtureInfo = {
      *
      * Parsed from blockquotes in the fixture file, for example:
      * ```
-     * > optionName: optionValue
-     * > anotherOption: anotherValue
+     * > - optionName: optionValue
+     * > - anotherOption: anotherValue
      * ```
      */
     options: Record<string, any>;

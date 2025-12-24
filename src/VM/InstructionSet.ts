@@ -70,6 +70,8 @@ export abstract class InstructionSet
                 case Opcode.ARRAY_PUSH: this.__op_arrayPush(instr.arg); break;
                 case Opcode.CALL: this.__op_call(instr.arg); break;
                 case Opcode.CALL_METHOD: this.__op_callMethod(instr.arg); break;
+                case Opcode.CALL_PARENT: this.__op_callParent(instr.arg); break;
+                case Opcode.SUPER: this.__op__super(instr.arg); break;
                 case Opcode.CONST: this.__op_constant(instr.arg); break;
                 case Opcode.DIV: this.__op_div(instr.arg); break;
                 case Opcode.DUP: this.__op_dup(instr.arg); break;
@@ -95,6 +97,7 @@ export abstract class InstructionSet
                 case Opcode.MAKE_FUNCTION: this.__op_makeFunction(instr.arg); break;
                 case Opcode.MAKE_METHOD: this.__op_makeMethod(instr.arg); break;
                 case Opcode.MAKE_OBJECT: this.__op_makeObject(instr.arg); break;
+                case Opcode.MAKE_RANGE: this.__op_makeRange(instr.arg); break;
                 case Opcode.MOD: this.__op_mod(instr.arg); break;
                 case Opcode.MUL: this.__op_mul(instr.arg); break;
                 case Opcode.NEG: this.__op_neg(instr.arg); break;
@@ -204,25 +207,71 @@ export abstract class InstructionSet
             return;
         }
     
-        // Blueprint method call.
-        if (receiver && typeof receiver === 'object' && '__methods' in receiver && '__blueprint' in receiver) {
-            if (! (receiver.__methods && typeof receiver.__methods[name] === 'object')) {
-                throw new Error(`The method "${name}" does not exist on "${receiver.__blueprint.name}".`);
-            }
+        throw new Error(`The method "${name}" does not exist on the receiver object.`);
+    }
+
+    protected __op_callParent(arg: any): void
+    {
+        const argCount: number = arg;
+        const blueprint: any   = this.state.pop();
     
-            const methodFunc = receiver.__methods[name];
-    
-            const currentFrame = this.state.pushFrame(this.state.ip, {
-                name:    methodFunc.name,
-                program: methodFunc.prog,
-            });
-    
-            currentFrame.locals['this'] = receiver;
-            this.state.ip                    = methodFunc.addr;
-            return;
+        if (! blueprint || blueprint.type !== 'Blueprint') {
+            throw new Error(`'super' call requires a Blueprint.`);
         }
     
-        throw new Error(`The method "${name}" does not exist on the receiver object.`);
+        if (argCount !== blueprint.paramCount) {
+            throw new Error(`Blueprint "${blueprint.name}" expects ${blueprint.paramCount} argument${blueprint.paramCount === 1 ? '' : 's'}, but got ${argCount}.`);
+        }
+    
+        const thisIndex = this.state.stack.length - argCount - 1;
+        const instance  = this.state.stack[thisIndex];
+        this.state.stack.splice(thisIndex, 1);
+    
+        const frame = this.state.pushFrame(this.state.ip, {
+            program: blueprint.prog,
+            name:    `super ${blueprint.name}`,
+        });
+    
+        frame.locals['this'] = instance;
+        this.state.ip             = blueprint.constructorAddr;
+    }
+
+    protected __op__super(arg: any): void
+    {
+        const operand: { name: string, args: number, callee: string } = arg;
+        const {name, args, callee}                                    = operand;
+    
+        const thisIndex = this.state.stack.length - args - 1;
+    
+        const instance = this.state.stack[thisIndex];
+        if (! instance) {
+            throw new Error(`Attempt to call parent method "${name}" on an undefined value.`);
+        }
+    
+        const blueprint = instance.__blueprint;
+        if (! blueprint) {
+            throw new Error(`Instance has no blueprint to call super method "${name}" on.`);
+        }
+    
+        const ownerBlueprint = this.state.getVar(callee);
+        const parent = ownerBlueprint.parent;
+    
+        if (! parent) {
+            throw new Error(`Blueprint "${blueprint.name}" has no parent to call "${name}" on.`);
+        }
+    
+        const method = parent.methods[name];
+        if (! method) {
+            throw new Error(`Method "${name}" not found in parent blueprint "${parent.name}".`);
+        }
+    
+        const frame = this.state.pushFrame(this.state.ip, {
+            program: method.prog,
+            name:    `parent.${name}`,
+        });
+    
+        frame.locals['this'] = instance;
+        this.state.ip             = method.addr;
     }
 
     protected __op_constant(arg: any): void
@@ -283,7 +332,7 @@ export abstract class InstructionSet
         const obj: any    = this.state.pop();
     
         if (ForbiddenKeys.has(key)) {
-            throw new Error(`Access to property '${key}' is forbidden.`);
+            throw new Error(`Access to property "${key}" is forbidden.`);
         }
     
         if (Array.isArray(obj)) {
@@ -293,7 +342,7 @@ export abstract class InstructionSet
             }
     
             const index = Number(key);
-            if (isNaN(index)) throw new Error(`Array index must be a number, got '${key}'`);
+            if (isNaN(index)) throw new Error(`Array index must be a number, got "${key}".`);
             if (index < 0 || index >= obj.length) throw new Error(`The index #${index} is out of bounds [0] - [${obj.length - 1}].`);
     
             this.state.push(obj[index]);
@@ -303,14 +352,14 @@ export abstract class InstructionSet
         } else if (obj && typeof obj === 'object') {
             if (! (key in obj)) {
                 const o = arg ? `"${arg}"` : '"object"';
-                throw new Error (`The property '${key}' does not exist on ${o}.`);
+                throw new Error (`The property "${key}" does not exist on ${o}.`);
             }
     
             const val = obj[key];
             this.state.push(val === undefined ? null : val);
         } else {
             const target = arg ? `'${arg}'` : 'object';
-            throw new Error(`Cannot access property '${key}' of ${target} because ${target} is not defined.`);
+            throw new Error(`Cannot access property "${key}" of "${target}" because "${target}" is not defined.`);
         }
     }
 
@@ -451,7 +500,7 @@ export abstract class InstructionSet
     {
         const condition = this.state.pop();
     
-        if (!condition) {
+        if (!this.state.isTruthy(condition)) {
             this.state.ip = arg;
         }
     }
@@ -460,7 +509,7 @@ export abstract class InstructionSet
     {
         const condition = this.state.pop();
     
-        if (condition) {
+        if (this.state.isTruthy(condition)) {
             this.state.ip = arg;
         }
     }
@@ -503,14 +552,28 @@ export abstract class InstructionSet
     {
         const [name, addr, paramCount] = arg;
     
-        this.state.push({
+        const parent = this.state.pop();
+    
+        if (parent !== null && parent.type !== 'Blueprint') {
+            throw new Error(`Runtime Error: Class '${name}' extends a non-blueprint value (${parent?.type || 'null'}).`);
+        }
+    
+        const blueprint = {
             type:            'Blueprint',
             name:            name,
             constructorAddr: addr,
             paramCount:      paramCount || 0,
             methods:         {},
             prog:            this.state.currentProgram,
-        });
+            parent:          undefined,
+        };
+    
+        if (parent) {
+            Object.setPrototypeOf(blueprint.methods, parent.methods);
+            blueprint.parent = parent;
+        }
+    
+        this.state.push(blueprint);
     }
 
     protected __op_makeFunction(arg: any): void
@@ -533,15 +596,20 @@ export abstract class InstructionSet
             throw new Error("Runtime Error: Cannot add method to non-blueprint.");
         }
     
-        console.log('ATTACH:', methodFunc);
-    
-        // Attach it!
         blueprint.methods[methodFunc.name] = methodFunc;
     }
 
     protected __op_makeObject(arg: any): void
     {
         const obj: Record<string, any> = {};
+    
+        // Mark this object as a VM object with a hidden property
+        Object.defineProperty(obj, '__is_vm_object__', {
+            value: true,
+            enumerable: false,
+            writable: false,
+            configurable: false,
+        });
     
         for (let i = 0; i < arg; i++) {
             const val = this.state.pop();
@@ -550,6 +618,19 @@ export abstract class InstructionSet
         }
     
         this.state.push(obj);
+    }
+
+    protected __op_makeRange(arg: any): void
+    {
+        const end: number   = this.state.pop();
+        const start: number = this.state.pop();
+        const arr: number[] = [];
+    
+        for (let i: number = start; i < end; i++) {
+            arr.push(i);
+        }
+    
+        this.state.push(arr);
     }
 
     protected __op_mod(arg: any): void
@@ -584,36 +665,30 @@ export abstract class InstructionSet
 
     protected __op__new(arg: any): void
     {
-        const argCount: number = arg;
-    
-        // 1. Pop the Blueprint (It is now at the top!)
         const blueprint = this.state.pop();
     
-        console.log("BLUEPRINT:", blueprint);
-    
-        if (!blueprint || blueprint.type !== 'Blueprint') {
+        if (! blueprint || blueprint.type !== 'Blueprint') {
             throw new Error('\'new\' requires a Blueprint.');
         }
     
-        // 2. Create Instance (Pre-allocation)
-        const instance: any = {
-            __blueprint: blueprint,
-            __methods:   blueprint.methods,
-        };
+        const instance: any  = Object.create(blueprint.methods);
+        instance.__blueprint = blueprint;
     
-        // 3. Create Frame
-        // We do NOT pop args here. We leave them for the constructor's STORE ops to consume.
-        const frame = this.state.pushFrame(this.state.ip, {
-            program:    blueprint.prog,
-            moduleName: blueprint.prog.name,
-            name:       `new ${blueprint.name}`,
+        // Mark this object as a VM object with a hidden property
+        Object.defineProperty(instance, '__is_vm_object__', {
+            value: true,
+            enumerable: false,
+            writable: false,
+            configurable: false,
         });
     
-        // 4. Inject 'this'
-        frame.locals['this'] = instance;
+        const frame = this.state.pushFrame(this.state.ip, {
+            program: blueprint.prog,
+            name:    `new ${blueprint.name}`,
+        });
     
-        // 5. Jump to Constructor
-        this.state.ip = blueprint.constructorAddr;
+        frame.locals['this'] = instance;
+        this.state.ip             = blueprint.constructorAddr;
     }
 
     protected __op_not(arg: any): void
@@ -692,7 +767,7 @@ export abstract class InstructionSet
         const obj = this.state.pop();
     
         if (ForbiddenKeys.has(key)) {
-            throw new Error(`Access to property '${key}' is forbidden.`);
+            throw new Error(`Access to property "${key}" is forbidden.`);
         }
     
         if (Array.isArray(obj)) {
@@ -706,10 +781,14 @@ export abstract class InstructionSet
         } else if (obj instanceof Map) {
             obj.set(key, val);
         } else if (obj && typeof obj === 'object') {
+            if (! obj.__is_vm_object__ && !(key in obj)) {
+                throw new Error(`Cannot create new property "${key}" on host-provided object.`);
+            }
+    
             obj[key] = val;
         } else {
             const target = arg ? `'${arg}'` : 'object';
-            throw new Error(`Cannot set property '${key}' of ${target} because ${target} is not defined.`);
+            throw new Error(`Cannot set property "${key}" of "${target}" because "${target}" is not defined.`);
         }
     
         this.state.push(val);

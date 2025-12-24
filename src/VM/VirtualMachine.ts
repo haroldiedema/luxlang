@@ -53,11 +53,6 @@ export class VirtualMachine extends InstructionSet
         };
     }
 
-    public get globals(): Record<string, any>
-    {
-        return this.state.globals;
-    }
-
     /**
      * Register a native function that can be called from the VM.
      *

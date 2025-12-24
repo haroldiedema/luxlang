@@ -5,34 +5,28 @@ import { State } from '../State.js';
  */
 export function _new(state: State, arg: any): void
 {
-    const argCount: number = arg;
-
-    // 1. Pop the Blueprint (It is now at the top!)
     const blueprint = state.pop();
 
-    console.log("BLUEPRINT:", blueprint);
-
-    if (!blueprint || blueprint.type !== 'Blueprint') {
+    if (! blueprint || blueprint.type !== 'Blueprint') {
         throw new Error('\'new\' requires a Blueprint.');
     }
 
-    // 2. Create Instance (Pre-allocation)
-    const instance: any = {
-        __blueprint: blueprint,
-        __methods:   blueprint.methods,
-    };
+    const instance: any  = Object.create(blueprint.methods);
+    instance.__blueprint = blueprint;
 
-    // 3. Create Frame
-    // We do NOT pop args here. We leave them for the constructor's STORE ops to consume.
-    const frame = state.pushFrame(state.ip, {
-        program:    blueprint.prog,
-        moduleName: blueprint.prog.name,
-        name:       `new ${blueprint.name}`,
+    // Mark this object as a VM object with a hidden property
+    Object.defineProperty(instance, '__is_vm_object__', {
+        value: true,
+        enumerable: false,
+        writable: false,
+        configurable: false,
     });
 
-    // 4. Inject 'this'
-    frame.locals['this'] = instance;
+    const frame = state.pushFrame(state.ip, {
+        program: blueprint.prog,
+        name:    `new ${blueprint.name}`,
+    });
 
-    // 5. Jump to Constructor
-    state.ip = blueprint.constructorAddr;
+    frame.locals['this'] = instance;
+    state.ip             = blueprint.constructorAddr;
 }

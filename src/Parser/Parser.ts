@@ -1,6 +1,6 @@
-import {Punctuation, Token, TokenPosition, TokenStream, TokenType} from '../Tokenizer/index.js';
-import { Expr }                                                    from './AST.js';
-import type * as AST                                               from './AST.js';
+import { Punctuation, Token, TokenPosition, TokenStream, TokenType } from '../Tokenizer/index.js';
+import { Expr }                                                      from './AST.js';
+import type * as AST                                                 from './AST.js';
 
 export class Parser
 {
@@ -19,7 +19,7 @@ export class Parser
     public parse(): AST.Script
     {
         const statements: AST.Stmt[] = [];
-        while (!this.stream.isEof) {
+        while (! this.stream.isEof) {
             if (this.match(TokenType.NEWLINE)) continue;
             statements.push(this.parseStatement());
         }
@@ -38,10 +38,10 @@ export class Parser
     private parseStatement(): AST.Stmt
     {
         const token = this.stream.peek();
-        if (!token) throw new Error('Unexpected EOF');
+        if (! token) throw new Error('Unexpected EOF');
 
         let isPublic = false,
-            isLocal = false;
+            isLocal  = false;
 
         // 1. Consume modifiers
         if (this.match(TokenType.KEYWORD, 'public')) {
@@ -64,7 +64,7 @@ export class Parser
             if (isLocal) {
                 throw new Error('Blueprints cannot be declared as \'local\'. They are local by default unless marked \'public\'.');
             }
-            return this.parseBlueprintStatement();
+            return this.parseBlueprintStatement(isPublic);
         }
 
         // If public or local are set, we know we are parsing an assignment expression.
@@ -74,14 +74,26 @@ export class Parser
 
         if (token.type === TokenType.KEYWORD) {
             switch (token.value) {
-                case 'import':   return this.parseImportStatement();
-                case 'wait':     return this.parseWaitStatement();
-                case 'on':       return this.parseEventHook();
-                case 'return':   return this.parseReturnStatement();
-                case 'if':       return this.parseIfStatement();
-                case 'for':      return this.parseForStatement();
-                case 'break':    return this.parseBreakStatement();
-                case 'continue': return this.parseContinueStatement();
+                case 'import':
+                    return this.parseImportStatement();
+                case 'wait':
+                    return this.parseWaitStatement();
+                case 'on':
+                    return this.parseEventHook();
+                case 'return':
+                    return this.parseReturnStatement();
+                case 'if':
+                    return this.parseIfStatement();
+                case 'for':
+                    return this.parseForStatement();
+                case 'while':
+                    return this.parseWhileStatement();
+                case 'do':
+                    return this.parseDoWhileStatement();
+                case 'break':
+                    return this.parseBreakStatement();
+                case 'continue':
+                    return this.parseContinueStatement();
             }
         }
 
@@ -99,7 +111,7 @@ export class Parser
         const params: AST.Identifier[] = [];
 
         if (this.match(TokenType.PUNCTUATION, '(')) {
-            if (!this.check(TokenType.PUNCTUATION, ')')) {
+            if (! this.check(TokenType.PUNCTUATION, ')')) {
                 do {
                     params.push(this.parseIdentifier());
                 } while (this.match(TokenType.PUNCTUATION, ','));
@@ -113,7 +125,7 @@ export class Parser
         return {type: 'EventHook', name, params, body, position};
     }
 
-    private parseBlueprintStatement(): AST.BlueprintStatement
+    private parseBlueprintStatement(isPublic: boolean = false): AST.BlueprintStatement
     {
         const startPos = this.currentPos();
         this.consume(TokenType.KEYWORD, 'blueprint');
@@ -122,7 +134,7 @@ export class Parser
         // 1. Check for Primary Constructor Parameters "(name, age)"
         const params: AST.Identifier[] = [];
         if (this.match(TokenType.PUNCTUATION, '(')) {
-            if (!this.check(TokenType.PUNCTUATION, ')')) {
+            if (! this.check(TokenType.PUNCTUATION, ')')) {
                 do {
                     params.push(this.parseIdentifier());
                 } while (this.match(TokenType.PUNCTUATION, ','));
@@ -130,14 +142,46 @@ export class Parser
             this.consume(TokenType.PUNCTUATION, ')');
         }
 
+        let parent: AST.Identifier | undefined,
+            parentArgs: AST.Expr[] = [];
+
+        // Check for extends.
+        if (this.match(TokenType.KEYWORD, 'extends')) {
+            parent = this.parseIdentifier();
+
+            if (this.match(TokenType.PUNCTUATION, '(')) {
+                if (! this.check(TokenType.PUNCTUATION, ')')) {
+                    do {
+                        parentArgs.push(this.parseExpression());
+                    } while (this.match(TokenType.PUNCTUATION, ','));
+                }
+                this.consume(TokenType.PUNCTUATION, ')');
+            }
+        }
+
+        // Body is optional.
+        if (! this.check(TokenType.PUNCTUATION, ':')) {
+            return {
+                type:       'BlueprintStatement',
+                name,
+                properties: [],
+                params,
+                methods:    [],
+                position:   startPos,
+                isPublic,
+                parent,
+                parentArgs,
+            };
+        }
+
         this.consume(TokenType.PUNCTUATION, ':');
         this.consume(TokenType.NEWLINE);
         this.consume(TokenType.INDENT);
 
         const properties: { key: AST.Identifier, value: AST.Expr }[] = [];
-        const methods: AST.FunctionDeclaration[] = [];
+        const methods: AST.FunctionDeclaration[]                     = [];
 
-        while (!this.match(TokenType.DEDENT) && !this.stream.isEof) {
+        while (! this.match(TokenType.DEDENT) && ! this.stream.isEof) {
             if (this.match(TokenType.NEWLINE)) {
                 continue;
             }
@@ -158,7 +202,7 @@ export class Parser
 
                 if (this.match(TokenType.PUNCTUATION, ':')) {
                     const value = this.parseExpression();
-                    properties.push({ key, value });
+                    properties.push({key, value});
 
                     if (this.check(TokenType.NEWLINE)) {
                         this.consume(TokenType.NEWLINE);
@@ -170,16 +214,19 @@ export class Parser
                 }
             }
 
-            throw new Error("Expected 'fn' or property definition inside blueprint body");
+            throw new Error('Expected \'fn\' or property definition inside blueprint body');
         }
 
         return {
-            type: 'BlueprintStatement',
+            type:     'BlueprintStatement',
             name,
             properties,
             params,
             methods,
-            position: startPos
+            position: startPos,
+            isPublic,
+            parent,
+            parentArgs,
         };
     }
 
@@ -188,7 +235,7 @@ export class Parser
         const position = this.currentPos();
         this.consume(TokenType.KEYWORD, 'fn');
 
-        const name = this.parseIdentifier();
+        const name                    = this.parseIdentifier();
         let methodName: string | null = null;
         if (this.match(TokenType.PUNCTUATION, Punctuation.MEMBER_ACCESS)) {
             methodName = this.consume(TokenType.IDENTIFIER).value;
@@ -197,7 +244,7 @@ export class Parser
         const params: AST.Identifier[] = [];
 
         if (this.match(TokenType.PUNCTUATION, '(')) {
-            if (!this.check(TokenType.PUNCTUATION, ')')) {
+            if (! this.check(TokenType.PUNCTUATION, ')')) {
                 do {
                     params.push(this.parseIdentifier());
                 } while (this.match(TokenType.PUNCTUATION, ','));
@@ -221,7 +268,7 @@ export class Parser
     {
         this.consume(TokenType.NEWLINE);
 
-        if (!this.check(TokenType.INDENT)) {
+        if (! this.check(TokenType.INDENT)) {
             // Block is empty.
             const position = this.currentPos();
             return {type: 'Block', body: [], position};
@@ -230,7 +277,7 @@ export class Parser
         const position = this.currentPos();
         this.consume(TokenType.INDENT);
         const statements: AST.Stmt[] = [];
-        while (!this.check(TokenType.DEDENT) && !this.stream.isEof) {
+        while (! this.check(TokenType.DEDENT) && ! this.stream.isEof) {
             if (this.match(TokenType.NEWLINE)) continue;
             statements.push(this.parseStatement());
         }
@@ -264,7 +311,7 @@ export class Parser
         const position = this.currentPos();
         this.consume(TokenType.KEYWORD, 'return');
         let argument: AST.Expr | undefined;
-        if (!this.check(TokenType.NEWLINE)) argument = this.parseExpression();
+        if (! this.check(TokenType.NEWLINE)) argument = this.parseExpression();
         this.consume(TokenType.NEWLINE);
         return {type: 'ReturnStatement', argument, position};
     }
@@ -292,7 +339,7 @@ export class Parser
         const hasParen = this.match(TokenType.PUNCTUATION, '(');
         const iterator = this.parseIdentifier();
 
-        if (!this.match(TokenType.KEYWORD, 'in')) {
+        if (! this.match(TokenType.KEYWORD, 'in')) {
             throw new Error('Expected \'in\' after for-loop iterator');
         }
 
@@ -308,12 +355,41 @@ export class Parser
         return {type: 'ForStatement', iterator, collection, body, position};
     }
 
+    private parseWhileStatement(): AST.WhileStatement
+    {
+        const startPos = this.currentPos();
+
+        this.consume(TokenType.KEYWORD, 'while');
+        const condition = this.parseExpression();
+        this.consume(TokenType.PUNCTUATION, ':');
+
+        const body = this.parseBlock();
+
+        return {type: 'WhileStatement', condition, body, position: startPos};
+    }
+
+    private parseDoWhileStatement(): AST.DoWhileStatement
+    {
+        const startPos = this.currentPos();
+
+        this.consume(TokenType.KEYWORD, 'do');
+        this.consume(TokenType.PUNCTUATION, ':');
+
+        const body = this.parseBlock();
+
+        this.consume(TokenType.KEYWORD, 'while');
+        const condition = this.parseExpression();
+
+        return {type: 'DoWhileStatement', body, condition, position: startPos};
+    }
+
     private parseBreakStatement(): AST.BreakStatement
     {
         const position = this.currentPos();
         this.consume(TokenType.KEYWORD, 'break');
 
-        if (!this.stream.isEof) this.match(TokenType.NEWLINE);
+        if (! this.stream.isEof) this.match(TokenType.NEWLINE);
+
         return {type: 'BreakStatement', position};
     }
 
@@ -322,7 +398,7 @@ export class Parser
         const position = this.currentPos();
         this.consume(TokenType.KEYWORD, 'continue');
 
-        if (!this.stream.isEof) this.match(TokenType.NEWLINE);
+        if (! this.stream.isEof) this.match(TokenType.NEWLINE);
         return {type: 'ContinueStatement', position};
     }
 
@@ -330,7 +406,7 @@ export class Parser
     {
         const position   = this.currentPos();
         const expression = this.parseExpression(isPublic, isLocal);
-        if (!this.stream.isEof) this.consume(TokenType.NEWLINE);
+        if (! this.stream.isEof) this.consume(TokenType.NEWLINE);
         return {type: 'ExpressionStatement', expression, position};
     }
 
@@ -400,7 +476,7 @@ export class Parser
 
     private parseRelational(): AST.Expr
     {
-        let left = this.parseAdditive();
+        let left = this.parseRange();
 
         while (
             this.check(TokenType.OPERATOR, '<') ||
@@ -408,17 +484,17 @@ export class Parser
             this.check(TokenType.OPERATOR, '<=') ||
             this.check(TokenType.OPERATOR, '>=') ||
             this.check(TokenType.KEYWORD, 'in') ||
-            this.check(TokenType.KEYWORD, 'not') // <--- 1. Check for 'not' start
+            this.check(TokenType.KEYWORD, 'not')
             ) {
             // 2. Handle 'not in' specifically
             if (this.match(TokenType.KEYWORD, 'not')) {
-                if (!this.match(TokenType.KEYWORD, 'in')) {
-                    throw new Error("Unexpected token 'not'. Did you mean 'not in'?");
+                if (! this.match(TokenType.KEYWORD, 'in')) {
+                    throw new Error('Unexpected token \'not\'. Did you mean \'not in\'?');
                 }
 
                 const operator = 'not in';
                 const right    = this.parseAdditive();
-                left = {type: 'BinaryExpression', left, operator, right} as AST.BinaryExpression;
+                left           = {type: 'BinaryExpression', left, operator, right} as AST.BinaryExpression;
                 continue;
             }
 
@@ -428,6 +504,25 @@ export class Parser
             const right    = this.parseAdditive();
 
             left = {type: 'BinaryExpression', left, operator, right} as AST.BinaryExpression;
+        }
+
+        return left;
+    }
+
+    private parseRange(): AST.Expr
+    {
+        let left = this.parseAdditive();
+
+        while (this.check(TokenType.OPERATOR, '..')) {
+            const operator = this.stream.consume().value; // Consumes ".."
+            const right    = this.parseAdditive();
+
+            left = {
+                type: 'BinaryExpression',
+                left,
+                operator,
+                right,
+            } as AST.BinaryExpression;
         }
 
         return left;
@@ -497,7 +592,7 @@ export class Parser
         while (true) {
             if (this.match(TokenType.PUNCTUATION, '(')) {
                 const args: AST.Expr[] = [];
-                if (!this.check(TokenType.PUNCTUATION, ')')) {
+                if (! this.check(TokenType.PUNCTUATION, ')')) {
                     do {
                         args.push(this.parseExpression());
                     } while (this.match(TokenType.PUNCTUATION, ','));
@@ -556,6 +651,28 @@ export class Parser
                 this.stream.consume();
                 return {type: 'ThisExpression'} as AST.ThisExpression;
             }
+            if (token.value === 'parent') {
+                this.stream.consume();
+                const startPos = this.currentPos();
+                this.consume(TokenType.PUNCTUATION, '.');
+                const method = this.parseIdentifier();
+
+                const args: Expr[] = [];
+                this.consume(TokenType.PUNCTUATION, '(');
+                if (! this.check(TokenType.PUNCTUATION, ')')) { // Peek for ')'
+                    do {
+                        args.push(this.parseExpression());
+                    } while (this.match(TokenType.PUNCTUATION, ','));
+                }
+                this.consume(TokenType.PUNCTUATION, ')'); // consume ')'
+
+                return {
+                    type:       'ParentMethodCallExpression',
+                    methodName: method,
+                    arguments:  args,
+                    position:   startPos,
+                };
+            }
             if (token.value === 'true') {
                 this.stream.consume();
                 return {type: 'Literal', value: true, raw: 'true'} as AST.Literal;
@@ -572,22 +689,34 @@ export class Parser
                 this.stream.consume();
                 const startPos = this.currentPos();
 
-                // 1. Parse the Class Name (must be an identifier)
-                const className = this.parseIdentifier();
+                let className: AST.Identifier | AST.MemberExpression = this.parseIdentifier();
 
-                // 2. Parse Arguments (reusing your existing call arguments parser)
-                this.consume(TokenType.PUNCTUATION, '(');
+                while (this.match(TokenType.PUNCTUATION, '.')) {
+                    const property = this.parseIdentifier();
+                    className      = {
+                        type:     'MemberExpression',
+                        object:   className,
+                        property: property,
+                        computed: false,
+                    } as AST.MemberExpression;
+                }
+
+                // Arguments are optional.
                 const args: Expr[] = [];
-                do {
-                    args.push(this.parseExpression());
-                } while (this.match(TokenType.PUNCTUATION, ','));
-                this.consume(TokenType.PUNCTUATION, ')');
+                if (this.match(TokenType.PUNCTUATION, '(')) { // test & consume '('
+                    if (! this.check(TokenType.PUNCTUATION, ')')) { // Peek for ')'
+                        do {
+                            args.push(this.parseExpression());
+                        } while (this.match(TokenType.PUNCTUATION, ','));
+                    }
+                    this.consume(TokenType.PUNCTUATION, ')'); // consume ')'
+                }
 
                 return {
-                    type: 'NewExpression',
+                    type:      'NewExpression',
                     className: className,
                     arguments: args,
-                    position: startPos
+                    position:  startPos,
                 };
             }
         }
@@ -648,15 +777,15 @@ export class Parser
             this.consume(TokenType.PUNCTUATION, ']');
 
             return {
-                type: 'ArrayComprehension',
+                type:       'ArrayComprehension',
                 expression: firstExpr,
-                iterator: {
-                    type: 'Identifier',
-                    value: iteratorToken.value,
-                    position: iteratorToken.position
+                iterator:   {
+                    type:     'Identifier',
+                    value:    iteratorToken.value,
+                    position: iteratorToken.position,
                 },
                 collection: collection,
-                position
+                position,
             } satisfies AST.ArrayComprehension;
         }
 
@@ -707,7 +836,7 @@ export class Parser
                 value:      firstValue,
                 iterator:   iterator,
                 collection: collection,
-                position:   startPos
+                position:   startPos,
             };
         }
 
@@ -717,10 +846,10 @@ export class Parser
             type:     'Property',
             key:      firstKey,
             value:    firstValue,
-            position: startPos
+            position: startPos,
         });
 
-        while (!this.check(TokenType.PUNCTUATION, '}')) {
+        while (! this.check(TokenType.PUNCTUATION, '}')) {
             this.match(TokenType.PUNCTUATION, ',');
             this.skipFormatting();
 
@@ -748,9 +877,9 @@ export class Parser
     {
         const token = this.stream.peek();
 
-        if (!token || token.type !== type || (value && token.value !== value)) {
+        if (! token || token.type !== type || (value && token.value !== value)) {
             const msg = `Parse Error: Expected ${type} ${value || ''}, but found ${token?.type} ${token?.value}`;
-            let pos = '';
+            let pos   = '';
             if (token?.position) {
                 pos = ` at line ${token.position.lineStart}, column ${token.position.columnStart}`;
             }
@@ -776,11 +905,11 @@ export class Parser
     {
         const token = this.stream.peek();
 
-        if (!token || token.type !== type) {
+        if (! token || token.type !== type) {
             return false;
         }
 
-        return !(value && token.value !== value);
+        return ! (value && token.value !== value);
     }
 
     private currentPos(): TokenPosition
