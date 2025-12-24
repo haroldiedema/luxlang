@@ -6,10 +6,13 @@ import { Program }                  from './Program.js';
 
 export class Compiler
 {
-    private loopStack: LoopContext[]         = [];
-    private currentPos: TokenPosition | null = null;
+    private loopStack: LoopContext[]               = [];
+    private currentPos: TokenPosition | null       = null;
+    private pendingCalls: Record<string, number[]> = {};
 
     private program: Program = {
+        source:       '',
+        moduleName:   undefined,
         instructions: [],
         references:   {
             functions: {},
@@ -21,17 +24,19 @@ export class Compiler
         },
     };
 
-    public static compile(source: string): Program
+    public static compile(source: string, moduleName?: string): Program
     {
         const tokens = Tokenizer.tokenize(source);
         const ast    = Parser.parse(tokens);
 
-        return new Compiler().compile(ast);
+        return new Compiler().compile(moduleName, source, ast);
     }
 
-    public compile(program: AST.Script): Program
+    private compile(moduleName: string | undefined, source: string, program: AST.Script): Program
     {
         this.program = {
+            source,
+            moduleName,
             instructions: [],
             references:   {
                 functions: {},
@@ -76,7 +81,7 @@ export class Compiler
             case 'ImportStatement': {
                 const moduleName = (node as AST.ImportStatement).moduleName;
                 this.emit(Opcode.IMPORT, moduleName); // Import the module.
-                this.emit(Opcode.STORE, moduleName);  // Store the public exports of the module in a variable.
+                this.emit(Opcode.STORE, [moduleName]);  // Store the public exports of the module in a variable.
                 break;
             }
 
@@ -92,6 +97,11 @@ export class Compiler
 
             case 'IfStatement':
                 this.visitIfStatement(node as AST.IfStatement);
+                break;
+
+            case 'WaitStatement':
+                this.visit((node as AST.WaitStatement).duration);
+                this.emit(Opcode.WAIT);
                 break;
 
             case 'FunctionDeclaration':
@@ -142,8 +152,16 @@ export class Compiler
                 this.visitArrayExpression(node as AST.ArrayExpression);
                 break;
 
+            case 'ArrayComprehension':
+                this.visitArrayComprehension(node as AST.ArrayComprehension);
+                break;
+
             case 'ObjectExpression':
                 this.visitObjectExpression(node as AST.ObjectExpression);
+                break;
+
+            case 'ObjectComprehension':
+                this.visitObjectComprehension(node as AST.ObjectComprehension);
                 break;
 
             case 'MemberExpression':
@@ -152,6 +170,14 @@ export class Compiler
 
             case 'AssignmentExpression':
                 this.visitAssignmentExpression(node as AST.AssignmentExpression);
+                break;
+
+            case 'BlueprintStatement':
+                this.visitBlueprintStatement(node as AST.BlueprintStatement);
+                break;
+
+            case 'NewExpression':
+                this.visitNewExpression(node as AST.NewExpression);
                 break;
 
             default:
@@ -177,6 +203,12 @@ export class Compiler
             case '/':
                 this.emit(Opcode.DIV);
                 break;
+            case '%':
+                this.emit(Opcode.MOD);
+                break;
+            case '^':
+                this.emit(Opcode.EXP);
+                break;
             case '==':
                 this.emit(Opcode.EQ);
                 break;
@@ -195,6 +227,15 @@ export class Compiler
             case '<':
                 this.emit(Opcode.LT);
                 break;
+            case 'in':
+                this.emit(Opcode.IN);
+                break;
+            case 'not in':
+                this.emit(Opcode.IN);
+                this.emit(Opcode.NOT);
+                break;
+            default:
+                throw new Error(`Compiler: Unknown binary operator ${node.operator}`);
         }
     }
 
@@ -243,7 +284,7 @@ export class Compiler
         const funcStart = this.program.instructions.length;
 
         for (let i = node.params.length - 1; i >= 0; i--) {
-            this.emit(Opcode.STORE, node.params[i].value);
+            this.emit(Opcode.STORE, [node.params[i].value]);
         }
 
         this.visit(node.body);
@@ -254,6 +295,7 @@ export class Compiler
         this.emit(Opcode.CONST, node.methodName);
         this.emit(Opcode.MAKE_FUNCTION, {name: node.methodName, addr: funcStart, args: node.params.length});
         this.emit(Opcode.SET_PROP);
+        this.emit(Opcode.POP);
     }
 
     private visitIfStatement(node: AST.IfStatement)
@@ -290,14 +332,26 @@ export class Compiler
 
         node.arguments.forEach(arg => this.visit(arg));
 
-        if (node.callee.type !== 'Identifier') {
-            throw new Error('Dynamic function calls not supported yet');
-        }
-
         const funcName = (node.callee as AST.Identifier).value;
-        const funcAddr = this.program.references.functions[funcName];
+        const funcRef  = this.program.references.functions[funcName];
 
-        this.emit(Opcode.CALL, {name: funcName, addr: funcAddr?.address, args: node.arguments.length});
+        // 1. Get address (or -1 if not compiled yet, or null if dynamic/unknown)
+        const initialAddr = funcRef ? funcRef.address : null;
+
+        // 2. Emit CALL
+        const instrIndex = this.emit(Opcode.CALL, {
+            name: funcName,
+            addr: initialAddr,
+            args: node.arguments.length,
+        });
+
+        // 3. Register for Phase 3 Resolution if needed
+        if (funcRef && funcRef.address === -1) {
+            if (! this.pendingCalls[funcName]) {
+                this.pendingCalls[funcName] = [];
+            }
+            this.pendingCalls[funcName].push(instrIndex);
+        }
     }
 
     private visitArrayExpression(node: AST.ArrayExpression)
@@ -317,6 +371,50 @@ export class Compiler
         }
 
         this.emit(Opcode.MAKE_OBJECT, node.properties.length);
+    }
+
+    private visitObjectComprehension(node: AST.ObjectComprehension)
+    {
+        // 1. Unique Iterator Name
+        const uniqueIterName = `$comp_${this.program.instructions.length}`;
+
+        // 2. Clone expressions for variable renaming
+        const patchedKey   = structuredClone(node.key);
+        const patchedValue = structuredClone(node.value);
+
+        this.replaceIdentifier(patchedKey, node.iterator.value, uniqueIterName);
+        this.replaceIdentifier(patchedValue, node.iterator.value, uniqueIterName);
+
+        // 3. Setup Accumulator
+        this.emit(Opcode.MAKE_OBJECT);
+        this.emit(Opcode.STORE, ["$comp_obj_result", true]);
+
+        // 4. Loop Setup
+        this.visit(node.collection);
+        this.emit(Opcode.ITER_INIT);
+
+        const iterNextIndex = this.program.instructions.length;
+        const jumpToExit = this.emit(Opcode.ITER_NEXT, -1);
+
+        this.emit(Opcode.STORE, [uniqueIterName, true]);
+
+        // 5. Body: Set Property
+        this.emit(Opcode.LOAD, "$comp_obj_result"); // Target Object
+
+        this.visit(patchedKey);                     // Key (Evaluated!)
+        this.visit(patchedValue);                   // Value (Evaluated!)
+
+        this.emit(Opcode.SET_PROP);                 // Stack: [Obj, Key, Val] -> [Obj]
+        this.emit(Opcode.POP);
+        this.emit(Opcode.JMP, iterNextIndex);
+
+        // 6. Cleanup
+        const loopEndIndex = this.program.instructions.length;
+        this.patch(jumpToExit, loopEndIndex);
+        this.emit(Opcode.POP);
+
+        // 7. Result
+        this.emit(Opcode.LOAD, "$comp_obj_result");
     }
 
     private visitMemberExpression(node: AST.MemberExpression)
@@ -345,7 +443,15 @@ export class Compiler
     {
         if (node.left.type === 'Identifier') {
             this.visit(node.right);
-            this.emit(Opcode.STORE, (node.left as AST.Identifier).value);
+            this.emit(Opcode.DUP); // Duplicate value for STORE and possible EXPORT
+
+            const operand: any = [(node.left as AST.Identifier).value];
+
+            if (node.isLocal) {
+                operand.push(true);
+            }
+
+            this.emit(Opcode.STORE, operand);
 
             if (node.isPublic) {
                 const varName: string = (node.left as AST.Identifier).value;
@@ -380,8 +486,42 @@ export class Compiler
         throw new Error('Invalid assignment target');
     }
 
+    private visitArrayComprehension(node: AST.ArrayComprehension)
+    {
+        const uniqueIterName    = `$comp_${this.program.instructions.length}`;
+        const patchedExpression = structuredClone(node.expression);
+
+        this.replaceIdentifier(patchedExpression, node.iterator.value, uniqueIterName);
+
+        this.emit(Opcode.MAKE_ARRAY, 0);
+        this.emit(Opcode.STORE, ['$comp_result', true]);
+
+        this.visit(node.collection);
+
+        this.emit(Opcode.ITER_INIT);
+
+        const iterNextIndex = this.program.instructions.length;
+        const jumpToExit    = this.emit(Opcode.ITER_NEXT, -1);
+
+        this.emit(Opcode.STORE, [uniqueIterName, true]);
+        this.emit(Opcode.LOAD, '$comp_result');
+
+        this.visit(patchedExpression);
+
+        this.emit(Opcode.ARRAY_PUSH);
+        this.emit(Opcode.JMP, iterNextIndex);
+
+        const loopEndIndex = this.program.instructions.length;
+        this.patch(jumpToExit, loopEndIndex);
+
+        this.emit(Opcode.POP);
+        this.emit(Opcode.LOAD, '$comp_result');
+    }
+
     private visitForStatement(node: AST.ForStatement)
     {
+        const uniqueIterName = `$loop_${node.iterator.value}_${this.program.instructions.length}`;
+
         this.visit(node.collection);
         this.emit(Opcode.ITER_INIT);
 
@@ -394,8 +534,13 @@ export class Compiler
 
         const jumpToExitIndex = this.emit(Opcode.ITER_NEXT, -1);
 
-        this.emit(Opcode.STORE, node.iterator.value);
-        this.visit(node.body);
+        this.emit(Opcode.STORE, [uniqueIterName, true]);
+
+        const bodyClone = structuredClone(node.body);
+
+        this.replaceIdentifier(bodyClone, node.iterator.value, uniqueIterName);
+
+        this.visit(bodyClone);
 
         this.emit(Opcode.JMP, iterNextIndex);
 
@@ -416,6 +561,7 @@ export class Compiler
             throw new Error('Compiler Error: \'break\' used outside of loop');
         }
 
+        this.emit(Opcode.POP); // Clean up the iterator value on the stack.
         const index = this.emit(Opcode.JMP, -1);
 
         this.loopStack[this.loopStack.length - 1].breakPatchList.push(index);
@@ -431,47 +577,117 @@ export class Compiler
         this.emit(Opcode.JMP, ctx.continueAddress);
     }
 
+    private visitBlueprintStatement(node: AST.BlueprintStatement)
+    {
+        const jumpIndex = this.emit(Opcode.JMP, 0);
+        const constructorStartIndex = this.program.instructions.length;
+
+        for (let i = node.params.length - 1; i >= 0; i--) {
+            this.emit(Opcode.STORE, [node.params[i].value, true]);
+        }
+
+        // Initialize properties.
+        for (const prop of node.properties) {
+            this.emit(Opcode.LOAD, "this");          // 1. Object
+            this.emit(Opcode.CONST, prop.key.value); // 2. Key (Emit this BEFORE visiting value)
+            this.visit(prop.value);                  // 3. Value
+            this.emit(Opcode.SET_PROP);               // or SET_PROP
+            this.emit(Opcode.POP);
+        }
+
+        this.emit(Opcode.LOAD, "this");
+        this.emit(Opcode.RET);
+
+        const constructorEndIndex = this.program.instructions.length;
+        this.patch(jumpIndex, constructorEndIndex);
+
+        this.emit(Opcode.MAKE_BLUEPRINT, [node.name.value, constructorStartIndex, node.params.length]);
+        this.emit(Opcode.STORE, [node.name.value, true]);
+
+        // Attach methods.
+        for (const method of node.methods) {
+            // Compile the method body
+            const methodJump = this.emit(Opcode.JMP, 0);
+            const methodAddr = this.program.instructions.length;
+
+            // ... Method Preamble (Store Params) ...
+            for (let i = method.params.length - 1; i >= 0; i--) {
+                this.emit(Opcode.STORE, [method.params[i].value, true]);
+            }
+
+            this.visit(method.body);
+
+            // Ensure void return
+            if (this.program.instructions[this.program.instructions.length-1].op !== Opcode.RET) {
+                this.emit(Opcode.CONST, 0); // Void return
+                this.emit(Opcode.RET);
+            }
+
+            const methodEnd = this.program.instructions.length;
+            this.patch(methodJump, methodEnd);
+
+            // Attach Method to Blueprint
+            // Stack: []
+            this.emit(Opcode.LOAD, node.name.value); // Load Blueprint
+            this.emit(Opcode.MAKE_FUNCTION, {name: method.name.value, addr: methodAddr, args: method.params.length});
+            this.emit(Opcode.MAKE_METHOD); // Pull MAKE_FUNCTION info from the stack and glue it to the blueprint.
+        }
+    }
+
+    private visitNewExpression(node: AST.NewExpression)
+    {
+        for (const arg of node.arguments) {
+            this.visit(arg);
+        }
+
+        // 2. Push Blueprint (Class Name)
+        // We load it LAST so it sits on top of the stack for the VM to pop.
+        this.emit(Opcode.LOAD, node.className.value);
+
+        // 3. Emit NEW
+        this.emit(Opcode.NEW, node.arguments.length);
+    }
+
     private hoistFunctions(program: AST.Script)
     {
         const functions = program.body.filter(s => s.type === 'FunctionDeclaration') as AST.FunctionDeclaration[];
+        if (functions.length === 0) return;
 
-        if (functions.length === 0) {
-            return;
-        }
-
-        // 1. Emit Jump: Skip over function bodies
+        this.currentPos     = {lineStart: 1, lineEnd: 1, columnStart: 1, columnEnd: 3};
         const jumpOverIndex = this.emit(Opcode.JMP, -1);
 
-        // 2. Compile Function Bodies
         for (const func of functions) {
-            const addr = this.program.instructions.length;
-
-            // Register address for internal compile-time resolution
             this.program.references.functions[func.name.value] = {
-                address: addr,
+                address: -1,
                 numArgs: func.params.length,
             };
 
-            // Metadata: Register export if public
             if (func.isPublic) {
                 this.program.exported.functions.push(func.name.value);
             }
+        }
 
-            // Store args (Standard body compilation)
+        for (const func of functions) {
+            const funcName = func.name.value;
+            const addr     = this.program.instructions.length;
+
+            this.program.references.functions[funcName].address = addr;
+
+            this.currentPos = func.position;
+
             const params: string[] = [];
             const instrStartIndex  = this.program.instructions.length;
 
             for (let i = func.params.length - 1; i >= 0; i--) {
                 const paramName = func.params[i].value;
                 params.push(paramName);
-                this.emit(Opcode.STORE, paramName);
+                this.emit(Opcode.STORE, [paramName, true]);
             }
 
             this.visit(func.body);
 
-            this.program.instructions[instrStartIndex].comment = `DECL ${func.name.value}(${params.reverse().join(', ')})`;
+            this.program.instructions[instrStartIndex].comment = `DECL ${funcName}(${params.reverse().join(', ')})`;
 
-            // Ensure return
             const lastStmt = func.body.body[func.body.body.length - 1];
             if (! lastStmt || lastStmt.type !== 'ReturnStatement') {
                 this.emit(Opcode.CONST, null);
@@ -479,31 +695,30 @@ export class Compiler
             }
         }
 
-        // 3. Patch Jump: Begin "Main Script" execution
-        this.patch(jumpOverIndex, this.program.instructions.length);
+        for (const [funcName, instructionIndices] of Object.entries(this.pendingCalls)) {
+            const realAddr = this.program.references.functions[funcName].address;
 
-        // 4. Runtime Initialization (OPTIMIZED)
-        // Only generate opcodes for functions that need to be exported.
-        for (const func of functions) {
-            if (!func.isPublic) {
-                continue;
+            if (realAddr === -1) {
+                throw new Error(`Compiler Error: Function '${funcName}' was called but never defined.`);
             }
 
+            for (const index of instructionIndices) {
+                this.program.instructions[index].arg.addr = realAddr;
+            }
+        }
+
+        this.pendingCalls = {};
+
+        this.patch(jumpOverIndex, this.program.instructions.length);
+
+        for (const func of functions) {
+            if (! func.isPublic) continue;
             const funcName = func.name.value;
             const ref      = this.program.references.functions[funcName];
 
-            // A. Create the Function Object
-            this.emit(Opcode.MAKE_FUNCTION, {
-                name: funcName,
-                addr: ref.address,
-                args: ref.numArgs
-            });
-
-            // B. Store it locally (so "public fn foo" is also available as "foo" in the script)
+            this.emit(Opcode.MAKE_FUNCTION, {name: funcName, addr: ref.address, args: ref.numArgs});
             this.emit(Opcode.DUP);
-            this.emit(Opcode.STORE, funcName);
-
-            // C. Export it
+            this.emit(Opcode.STORE, [funcName]);
             this.emit(Opcode.CONST, funcName);
             this.emit(Opcode.SWAP);
             this.emit(Opcode.EXPORT);
@@ -532,7 +747,7 @@ export class Compiler
             for (let i = hook.params.length - 1; i >= 0; i--) {
                 const paramName = hook.params[i].value;
                 params.push(paramName);
-                this.emit(Opcode.STORE, paramName);
+                this.emit(Opcode.STORE, [paramName]);
             }
 
             this.visit(hook.body);
@@ -560,6 +775,58 @@ export class Compiler
     private patch(index: number, value: any)
     {
         this.program.instructions[index].arg = value;
+    }
+
+    private replaceIdentifier(node: any, oldName: string, newName: string): void
+    {
+        if (!node || typeof node !== 'object') return;
+
+        // 1. STOP CONDITION: Nested Scope Shadowing
+        // If we encounter a nested loop or function that defines the same variable,
+        // we stop traversing this branch because the inner scope handles its own 'i'.
+
+        // Check Nested For-Loop
+        if (node.type === 'ForStatement' && node.iterator?.value === oldName) {
+            // We still traverse the collection (e.g. for i in [i, i+1]),
+            // but NOT the body or the iterator definition.
+            this.replaceIdentifier(node.collection, oldName, newName);
+            return;
+        }
+
+        // Check Function Definition
+        if ((node.type === 'FunctionDeclaration' || node.type === 'ScriptFunction') &&
+            node.params?.some((p: any) => p.value === oldName)) {
+            return;
+        }
+
+        // 2. REPLACEMENT LOGIC
+        if (node.type === 'Identifier' && node.value === oldName) {
+            node.value = newName;
+            return;
+        }
+
+        // 3. RECURSION
+        for (const key in node) {
+            if (key === 'position') continue;
+
+            // SAFETY: Do not rename object properties (obj.i)
+            if (node.type === 'MemberExpression' && key === 'property' && !node.computed) {
+                continue;
+            }
+
+            // SAFETY: Do not rename object keys ({ i: 1 })
+            if (node.type === 'Property' && key === 'key') {
+                continue;
+            }
+
+            const child = node[key];
+
+            if (Array.isArray(child)) {
+                child.forEach(c => this.replaceIdentifier(c, oldName, newName));
+            } else if (typeof child === 'object') {
+                this.replaceIdentifier(child, oldName, newName);
+            }
+        }
     }
 }
 

@@ -51,7 +51,7 @@ fn greet:
 if is_ready:
     start_game()
 else:
-    wait()
+    pause()
 `;
         const tokens  = Tokenizer.tokenize(source);
         const parser  = new Parser(tokens);
@@ -74,7 +74,7 @@ else:
         const elseBlock = ifStmt.alternate as AST.Block;
         expect(elseBlock.type).toBe('Block');
         const elseCall = (elseBlock.body[0] as AST.ExpressionStatement).expression as AST.CallExpression;
-        expect((elseCall.callee as AST.Identifier).value).toBe('wait');
+        expect((elseCall.callee as AST.Identifier).value).toBe('pause');
     });
 
     it('should handle nested blocks', () => {

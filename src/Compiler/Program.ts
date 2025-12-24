@@ -1,6 +1,8 @@
 import { Instruction } from './Opcodes.js';
 
 export type Program = {
+    source: string;
+    moduleName?: string;
     instructions: Instruction[];
     references: {
         functions: Record<string, FunctionAddress>;

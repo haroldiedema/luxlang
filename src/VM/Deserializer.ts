@@ -20,6 +20,7 @@ export class Deserializer
             globals: this.restore(data.state.globals),
             stack:   this.restore(data.state.stack),
             frames:  this.restore(data.state.frames),
+            events:  this.restore(data.state.events),
         });
     }
 

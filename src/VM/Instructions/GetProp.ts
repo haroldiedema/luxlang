@@ -14,15 +14,25 @@ export function getProp(state: State, arg: string): void
     }
 
     if (Array.isArray(obj)) {
+        if (key === 'length' || key === 'size') {
+            state.push(obj.length);
+            return;
+        }
+
         const index = Number(key);
-        if (isNaN(index)) throw new Error(`Runtime Error: Array index must be a number, got '${key}'`);
-        if (index < 0 || index >= obj.length) throw new Error(`Index #${index} is out of bounds.`);
+        if (isNaN(index)) throw new Error(`Array index must be a number, got '${key}'`);
+        if (index < 0 || index >= obj.length) throw new Error(`The index #${index} is out of bounds [0] - [${obj.length - 1}].`);
 
         state.push(obj[index]);
     } else if (obj instanceof Map) {
         const val = obj.get(key);
         state.push(val === undefined ? null : val);
     } else if (obj && typeof obj === 'object') {
+        if (! (key in obj)) {
+            const o = arg ? `"${arg}"` : '"object"';
+            throw new Error (`The property '${key}' does not exist on ${o}.`);
+        }
+
         const val = obj[key];
         state.push(val === undefined ? null : val);
     } else {

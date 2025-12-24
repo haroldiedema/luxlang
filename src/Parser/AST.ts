@@ -1,11 +1,35 @@
-import {TokenPosition} from '../Tokenizer/index.js';
+import { TokenPosition } from '../Tokenizer/index.js';
 
 export type NodeType =
-    | 'Script' | 'Block' | 'FunctionDeclaration' | 'MethodDefinition' | 'IfStatement' | 'ReturnStatement'
-    | 'ExpressionStatement' | 'AssignmentExpression' | 'BinaryExpression' | 'LogicalExpression' | 'UnaryExpression'
-    | 'CallExpression' | 'MemberExpression' | 'ArrayExpression' | 'ObjectExpression' | 'Property'
-    | 'Identifier' | 'Literal' | 'ForStatement' | 'BreakStatement' | 'ContinueStatement' | 'ThisExpression' | 'EventHook'
-    | 'ImportStatement';
+    | 'Script'
+    | 'Block'
+    | 'FunctionDeclaration'
+    | 'MethodDefinition'
+    | 'IfStatement'
+    | 'ReturnStatement'
+    | 'ExpressionStatement'
+    | 'AssignmentExpression'
+    | 'BinaryExpression'
+    | 'LogicalExpression'
+    | 'UnaryExpression'
+    | 'CallExpression'
+    | 'MemberExpression'
+    | 'ArrayExpression'
+    | 'ArrayComprehension'
+    | 'ObjectExpression'
+    | 'ObjectComprehension'
+    | 'Property'
+    | 'Identifier'
+    | 'Literal'
+    | 'ForStatement'
+    | 'BreakStatement'
+    | 'ContinueStatement'
+    | 'ThisExpression'
+    | 'EventHook'
+    | 'ImportStatement'
+    | 'WaitStatement'
+    | 'BlueprintStatement'
+    | 'NewExpression';
 
 export interface BaseStmt
 {
@@ -57,6 +81,21 @@ export interface MethodDefinition extends BaseStmt
     body: Block;
 }
 
+export interface BlueprintStatement extends BaseStmt {
+    type: 'BlueprintStatement';
+    name: Identifier;
+    params: Identifier[]; // Primary constructor parameters
+    properties: { key: Identifier, value: Expr }[];
+    methods: FunctionDeclaration[];
+}
+
+export interface NewExpression extends BaseExpr
+{
+    type: 'NewExpression';
+    className: Identifier;
+    arguments: Expr[];
+}
+
 export interface IfStatement extends BaseStmt
 {
     type: 'IfStatement';
@@ -69,6 +108,12 @@ export interface ImportStatement extends BaseStmt
 {
     type: 'ImportStatement';
     moduleName: string;
+}
+
+export interface WaitStatement extends BaseStmt
+{
+    type: 'WaitStatement';
+    duration: Expr;
 }
 
 export interface ReturnStatement extends BaseStmt
@@ -100,6 +145,7 @@ export interface AssignmentExpression extends BaseExpr
     operator: string;
     right: Expr;
     isPublic: boolean;
+    isLocal: boolean;
 }
 
 export interface BinaryExpression extends BaseExpr
@@ -146,10 +192,27 @@ export interface ArrayExpression extends BaseExpr
     elements: Expr[];
 }
 
+export interface ArrayComprehension extends BaseExpr
+{
+    type: 'ArrayComprehension';
+    expression: Expr;
+    iterator: Identifier;
+    collection: Expr;
+}
+
 export interface ObjectExpression extends BaseExpr
 {
     type: 'ObjectExpression';
     properties: Property[];
+}
+
+export interface ObjectComprehension extends BaseExpr
+{
+    type: 'ObjectComprehension';
+    key: Expr;            // The expression for the key (e.g. name)
+    value: Expr;          // The expression for the value (e.g. len(name))
+    iterator: Identifier; // The loop variable (e.g. name)
+    collection: Expr;     // The array being iterated
 }
 
 export interface Property extends BaseExpr
@@ -197,7 +260,9 @@ export type Stmt =
     | ExpressionStatement
     | ForStatement
     | BreakStatement
-    | ContinueStatement;
+    | ContinueStatement
+    | WaitStatement
+    | BlueprintStatement;
 
 export type Expr =
     AssignmentExpression
@@ -207,7 +272,10 @@ export type Expr =
     | CallExpression
     | MemberExpression
     | ArrayExpression
+    | ArrayComprehension
     | ObjectExpression
+    | ObjectComprehension
     | Identifier
     | Literal
-    | ThisExpression;
+    | ThisExpression
+    | NewExpression;

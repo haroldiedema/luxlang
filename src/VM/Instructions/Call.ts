@@ -5,21 +5,30 @@ import {State} from '../State.js';
  */
 export function call(state: State, natives: Map<string, any>, arg: any): void
 {
-    if (arg.name && natives.has(arg.name)) {
-        const args = [];
+    const operand: {
+        name: string,
+        addr: number | null, // explicitly allow null
+        args: number,
+    } = arg;
 
-        for (let i = 0; i < arg.args; i++) {
-            args.unshift(state.pop());
-        }
-
-        const result = natives.get(arg.name)!(...args);
-
-        if (typeof result !== 'undefined') {
-            state.push(result);
-        }
+    if (operand.addr !== null && operand.addr !== undefined) {
+        state.pushFrame(state.ip, {
+            name: operand.name,
+        });
+        state.ip = operand.addr;
         return;
     }
 
-    state.pushFrame(state.ip);
-    state.ip = arg.addr;
+    if (operand.name && natives.has(operand.name)) {
+        const args: any[] = [];
+        for (let i = 0; i < operand.args; i++) {
+            args.unshift(state.pop());
+        }
+
+        const result = natives.get(operand.name)!(...args);
+        state.push(result ?? null);
+        return;
+    }
+
+    throw new Error(`The function "${operand.name}" does not exist.`);
 }

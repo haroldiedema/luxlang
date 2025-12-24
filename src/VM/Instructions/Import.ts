@@ -1,59 +1,54 @@
-import { Opcode, Program } from '../../Compiler/index.js';
-import { State }           from '../State.js';
+import { State } from '../State.js';
 
 /**
  * @opcode Opcode.IMPORT
  */
-export function _import(state: State, arg: string, moduleCache: any, resolveModule: any, program: Program): void
+export function _import(state: State, arg: string, moduleCache: any, resolveModule: any): void
 {
+    // 1. Cache Check
     if (moduleCache[arg]) {
         const moduleExports = moduleCache[arg];
-        state.push(moduleExports);
+
+        if (typeof moduleExports !== 'object') {
+            throw new Error(`Cached module is invalid: ${arg}`);
+        }
+
+        // 2. Handle Cached Module (No instructions)
+        if (! moduleExports.instructions) {
+            state.push(moduleExports);
+            return;
+        }
+
+        // 3. Execution Setup (The Context Switch)
+        state.pushFrame(state.ip, {
+            isModule:   true,
+            program:    moduleExports,
+            moduleName: arg,
+        });
+
+        state.ip = 0;
         return;
     }
 
     const moduleProgram = resolveModule(arg);
-    if (! moduleProgram) {
-        throw new Error(`Module not found: ${arg}`);
-    }
-
     if (! moduleProgram || typeof moduleProgram !== 'object') {
-        throw new Error(`Invalid module format for: ${arg}`);
+        throw new Error(`The module "${arg}" does not exist.`);
     }
 
-    if (typeof moduleProgram.instructions === 'undefined') {
+    // 3. Handle Native/JSON Modules (No instructions)
+    if (! moduleProgram.instructions) {
         state.push(moduleProgram);
+        // Save to cache immediately since there is no execution step
+        moduleCache[arg] = moduleProgram;
         return;
     }
 
-    const returnIp      = state.ip;
-    const moduleStartIp = program.instructions.length;
+    // 4. Execution Setup (The Context Switch)
+    state.pushFrame(state.ip, {
+        isModule:   true,
+        program:    moduleProgram,
+        moduleName: arg,
+    });
 
-    program.instructions.push(...moduleProgram.instructions.map((instr: any) => {
-        const newInstr = {...instr};
-
-        if (
-            newInstr.op === Opcode.JMP ||
-            newInstr.op === Opcode.JMP_IF_TRUE ||
-            newInstr.op === Opcode.JMP_IF_FALSE ||
-            newInstr.op === Opcode.CALL ||
-            newInstr.op === Opcode.ITER_NEXT
-        ) {
-            if (typeof newInstr.arg === 'number') {
-                newInstr.arg += moduleStartIp;
-            }
-        }
-
-        if (newInstr.op === Opcode.MAKE_FUNCTION) {
-            newInstr.arg = {
-                ...newInstr.arg,
-                addr: newInstr.arg.addr + moduleStartIp,
-            };
-        }
-
-        return newInstr;
-    }));
-
-    state.pushFrame(returnIp, false, true, arg);
-    state.ip = moduleStartIp;
+    state.ip = 0;
 }

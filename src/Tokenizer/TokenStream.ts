@@ -10,6 +10,11 @@ export class TokenStream
         this._tokens = tokens;
     }
 
+    public get tokens(): Token[]
+    {
+        return [...this._tokens];
+    }
+
     public get length(): number
     {
         return this._tokens.length;

@@ -1,4 +1,5 @@
-import {State} from './State.js';
+import events    from 'node:events';
+import { State } from './State.js';
 
 export class Serializer
 {
@@ -12,10 +13,13 @@ export class Serializer
 
         const serializedState = {
             hash,
-            ip:      state.ip,
-            stack:   this.process(state.stack),
-            globals: this.process(state.globals),
-            frames:  this.process(state.frames),
+            ip:        state.ip,
+            stack:     this.process(state.stack),
+            globals:   this.process(state.globals),
+            frames:    this.process(state.frames),
+            events:    this.process(events),
+            sleepTime: state.sleepTime,
+            deltaTime: state.deltaTime,
         };
 
         return JSON.stringify({
@@ -33,7 +37,7 @@ export class Serializer
 
     private process(value: any): any
     {
-        if (!value || typeof value !== 'object') return value;
+        if (! value || typeof value !== 'object') return value;
 
         if (this.objectToId.has(value)) {
             return {$ref: this.objectToId.get(value)};

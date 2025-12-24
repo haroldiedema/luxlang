@@ -33,7 +33,6 @@ export class Tokenizer
 
     public static tokenize(source: string): TokenStream
     {
-        // Ensure source ends with a newline
         if (! source.endsWith('\n')) {
             source += '\n';
         }
@@ -189,22 +188,343 @@ export class Tokenizer
         const quoteChar = this._source[this.index];
         if (quoteChar !== '"' && quoteChar !== '\'') return false;
 
-        let content   = '';
-        let tempIndex = this.index + 1;
+        const startLine = this.line;
+        const startCol  = this.col;
 
-        while (tempIndex < this._source.length && this._source[tempIndex] !== quoteChar) {
-            if (this._source[tempIndex] === '\\') {
-                tempIndex++;
-                content += this._source[tempIndex];
-            } else {
-                content += this._source[tempIndex];
+        this.advance(1); // Skip opening quote
+
+        let rawContent         = '';
+        let braceCount         = 0;
+        let maybeInterpolation = false;
+        let hasInterpolation   = false;
+        let isMultiLine        = false;
+
+        while (! this.isEof) {
+            const char = this._source[this.index];
+
+            if (char === '\\') {
+                rawContent += char;
+                this.advance(1);
+
+                if (! this.isEof) {
+                    const nextChar = this._source[this.index];
+                    rawContent += nextChar;
+                    this.advance(1);
+                }
+                continue;
             }
-            tempIndex++;
+
+            if (char === '{') {
+                braceCount++;
+                maybeInterpolation = true;
+            } else if (char === '}' && braceCount > 0) {
+                braceCount--;
+            }
+
+            if (char === quoteChar) {
+                this.advance(1);
+
+                if (maybeInterpolation && braceCount === 0) {
+                    hasInterpolation = true;
+                }
+
+                if (maybeInterpolation && braceCount > 0) {
+                    rawContent += char;
+                    continue;
+                }
+
+                break;
+            }
+
+            if (char === '\n') {
+                isMultiLine = true;
+                this.line++;
+                this.col = 1;
+            }
+
+            rawContent += char;
+            this.advance(1);
         }
 
-        this._tokens.push(this.createToken(TokenType.STRING, content));
-        this.advance(tempIndex - this.index + 1);
+        // Check for unterminated string
+        if (this.isEof && this._source[this.index - 1] !== quoteChar) {
+            this.throwError('Unterminated string literal');
+        }
+
+        if (isMultiLine) {
+            rawContent = this.stripIndentation(rawContent);
+        }
+
+        if (braceCount !== 0) {
+            throw new Error(`Unterminated interpolation expression in string literal at line ${startLine}, column ${startCol}`);
+        }
+
+        if (! hasInterpolation) {
+            this._tokens.push({
+                type:     TokenType.STRING,
+                value:    this.unescapeString(rawContent),
+                position: {lineStart: startLine, columnStart: startCol, lineEnd: this.line, columnEnd: this.col},
+            });
+
+            return true;
+        }
+
+        const segments = this.parseInterpolationSegments(rawContent);
+
+        let hasEmittedTokens = false;
+        for (const segment of segments) {
+            if (hasEmittedTokens) {
+                this._tokens.push({
+                    type:     TokenType.OPERATOR,
+                    value:    Operators.PLUS,
+                    position: this.currentPos(),
+                });
+            }
+
+            if (segment.type === 'text') {
+                const unescapedValue = this.unescapeString(segment.value);
+                hasEmittedTokens     = true;
+                this._tokens.push({
+                    type:     TokenType.STRING,
+                    value:    unescapedValue,
+                    position: {lineStart: startLine, columnStart: startCol, lineEnd: this.line, columnEnd: this.col},
+                });
+                continue;
+            }
+
+            if (segment.type === 'expr') {
+                hasEmittedTokens = true;
+                const tokens     = this.tokenizeExpression(segment.value);
+
+                if (tokens.length === 0) {
+                    this.throwError('Empty expression in string interpolation');
+                }
+
+                this._tokens.push({type: TokenType.PUNCTUATION, value: '(', position: {...this.currentPos()}});
+                for (const token of tokens) {
+                    this._tokens.push(token);
+                }
+                this._tokens.push({type: TokenType.PUNCTUATION, value: ')', position: {...this.currentPos()}});
+            }
+        }
+
         return true;
+    }
+
+    private parseInterpolationSegments(rawInput: string): { type: 'text' | 'expr', value: string }[]
+    {
+        const segments: { type: 'text' | 'expr', value: string }[] = [];
+        let currentText                                            = '';
+        let i                                                      = 0;
+
+        let hasIndentedContent = false;
+
+        while (i < rawInput.length) {
+            const char = rawInput[i];
+
+            // 1. Handle Escapes (pass them through to text)
+            if (char === '\\') {
+                currentText += char;
+                i++;
+                if (i < rawInput.length) {
+                    currentText += rawInput[i];
+                    i++;
+                }
+                continue;
+            }
+
+            if (char === '{') {
+                const result = this.extractBalancedExpression(rawInput, i + 1);
+
+                if (result !== null) {
+                    hasIndentedContent = hasIndentedContent || currentText.trim().length > 0;
+
+                    segments.push({type: 'text', value: currentText});
+                    currentText = '';
+                    segments.push({type: 'expr', value: result.code});
+
+                    i = result.endIndex + 1;
+                    continue;
+                }
+            }
+
+            currentText += char;
+            hasIndentedContent = hasIndentedContent || currentText.trim().length > 0;
+            i++;
+        }
+
+        segments.push({type: 'text', value: currentText});
+
+        if (hasIndentedContent) {
+            this.stripInterpolatedIndentation(segments);
+        }
+
+        return segments;
+    }
+
+    private extractBalancedExpression(input: string, startIndex: number): { code: string, endIndex: number } | null
+    {
+        for (let i = startIndex, braceCount = 1; i < input.length; i++) {
+            const char = input[i];
+
+            if (char === '\\') {
+                i++;
+                continue;
+            }
+
+            if (char === '{') {
+                braceCount++;
+            } else if (char === '}') {
+                braceCount--;
+                if (braceCount === 0) {
+                    return {
+                        code:     input.slice(startIndex, i),
+                        endIndex: i,
+                    };
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private unescapeString(raw: string): string
+    {
+        let result = '';
+        let i      = 0;
+        while (i < raw.length) {
+            if (raw[i] === '\\' && i + 1 < raw.length) {
+                const next = raw[i + 1];
+                switch (next) {
+                    case 'n':
+                        result += '\n';
+                        break;
+                    case 't':
+                        result += '\t';
+                        break;
+                    case 'r':
+                        result += '\r';
+                        break;
+                    case '"':
+                        result += '"';
+                        break;
+                    case '\'':
+                        result += '\'';
+                        break;
+                    case '\\':
+                        result += '\\';
+                        break;
+                    case '{':
+                        result += '{';
+                        break;
+                    case '}':
+                        result += '}';
+                        break;
+                    default:
+                        result += '\\' + next; // Unknown escape, keep literal
+                }
+                i += 2;
+            } else {
+                result += raw[i];
+                i++;
+            }
+        }
+        return result;
+    }
+
+    private currentPos(): any
+    {
+        return {lineStart: this.line, columnStart: this.col, lineEnd: this.line, columnEnd: this.col + 1};
+    }
+
+    private stripInterpolatedIndentation(segments: { type: 'text' | 'expr', value: string }[])
+    {
+        let minIndent = Infinity;
+
+        // Calculate Minimum Indentation
+        for (const seg of segments) {
+            if (seg.type !== 'text') continue;
+
+            const lines = seg.value.split('\n');
+
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i];
+                if (line.trim().length === 0) continue; // Ignore empty lines
+
+                let indent = 0;
+                while (indent < line.length && (line[indent] === ' ' || line[indent] === '\t')) {
+                    indent++;
+                }
+                if (indent < minIndent) minIndent = indent;
+            }
+        }
+
+        if (minIndent === Infinity) minIndent = 0;
+
+        // Strip Indentation
+        for (const seg of segments) {
+            if (seg.type !== 'text') continue;
+
+            const lines = seg.value.split('\n');
+
+            for (let i = 1; i < lines.length; i++) {
+                if (lines[i].length >= minIndent) {
+                    lines[i] = lines[i].slice(minIndent);
+                }
+            }
+
+            seg.value = lines.join('\n');
+        }
+
+        if (segments[0].type === 'text' && segments[0].value.startsWith('\n')) {
+            segments[0].value = segments[0].value.slice(1);
+        }
+
+        const last = segments[segments.length - 1];
+
+        if (last.type === 'text') {
+            const lines = last.value.split('\n');
+            if (lines.length > 0 && lines[lines.length - 1].trim() === '') {
+                lines.pop();
+                last.value = lines.join('\n');
+            }
+        }
+    }
+
+    private stripIndentation(raw: string): string
+    {
+        const lines = raw.split('\n');
+
+        if (lines.length > 0 && lines[0].trim() === '') {
+            lines.shift();
+        }
+
+        if (lines.length > 0) {
+            const lastLine = lines[lines.length - 1];
+            if (lastLine.trim() === '') {
+                lines.pop();
+            }
+        }
+
+        let minIndent = Infinity;
+
+        for (const line of lines) {
+            if (line.trim().length === 0) continue;
+
+            let indent = 0;
+            while (indent < line.length && (line[indent] === ' ' || line[indent] === '\t')) {
+                indent++;
+            }
+
+            if (indent < minIndent) minIndent = indent;
+        }
+
+        if (minIndent === Infinity) minIndent = 0;
+
+        return lines.map(line => {
+            if (line.length < minIndent) return line.trim();
+            return line.slice(minIndent);
+        }).join('\n');
     }
 
     private parseComment(): boolean
@@ -266,5 +586,16 @@ export class Tokenizer
     private throwUnexpectedCharacterError(): void
     {
         this.throwError(`Unexpected character "${this._source[this.index]}"`);
+    }
+
+    private tokenizeExpression(str: string): Token[]
+    {
+        const tokens = Tokenizer.tokenize(str.trim()).tokens;
+
+        return tokens.filter(t => (
+            t.type !== TokenType.NEWLINE &&
+            t.type !== TokenType.INDENT &&
+            t.type !== TokenType.DEDENT
+        ));
     }
 }

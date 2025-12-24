@@ -3,6 +3,19 @@ import { Program } from '../Compiler/index.js';
 export interface VirtualMachineOptions
 {
     /**
+     * The maximum number of operations (instructions) the VM is allowed to
+     * execute in a single run.
+     *
+     * Defaults to {@link Infinity} if not specified.
+     *
+     * You can tweak this value during runtime via {@link VirtualMachine.budget}
+     * property on the VM instance. A typical use-case is to set a budget for
+     * AI agents that are far away from the player, and increase it when they
+     * come closer (AI LOD).
+     */
+    budget?: number;
+
+    /**
      * Custom functions that can be invoked by scripts running inside the
      * virtual machine.
      */
@@ -49,4 +62,25 @@ export interface VirtualMachineOptions
      *          when sharing state between multiple VM instances.
      */
     moduleCache?: Record<string, any>;
+
+    /**
+     * A custom function that returns the current time in milliseconds.
+     *
+     * This is used to manage time-based operations inside the VM, such as
+     * delays and timeouts. If not provided, the VM will use the built-in
+     * {@link performance.now()} function or {@link Date.now()} as a fallback.
+     *
+     * @returns The current time in milliseconds.
+     */
+    now?: () => number;
+
+    /**
+     * Whether the VM should write ANSI escape codes to error messages.
+     *
+     * Defaults to {@link process.stdout.isTTY} and the ENV variable
+     * "TERM" is not set to "dumb" or ENV variable "FORCE_COLOR" is set.
+     *
+     * @remarks Defaults to `false` in browser environments.
+     */
+    colors?: boolean;
 }

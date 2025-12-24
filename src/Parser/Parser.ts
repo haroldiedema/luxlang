@@ -1,4 +1,5 @@
 import {Punctuation, Token, TokenPosition, TokenStream, TokenType} from '../Tokenizer/index.js';
+import { Expr }                                                    from './AST.js';
 import type * as AST                                               from './AST.js';
 
 export class Parser
@@ -39,36 +40,53 @@ export class Parser
         const token = this.stream.peek();
         if (!token) throw new Error('Unexpected EOF');
 
-        let isPublic = false;
+        let isPublic = false,
+            isLocal = false;
+
+        // 1. Consume modifiers
         if (this.match(TokenType.KEYWORD, 'public')) {
             isPublic = true;
         }
 
+        if (this.match(TokenType.KEYWORD, 'local')) {
+            isLocal = true;
+        }
+
+        // 2. Handle Functions (Supported: public fn, fn. Invalid: local fn)
         if (this.check(TokenType.KEYWORD, 'fn')) {
+            if (isLocal) {
+                throw new Error('Functions cannot be declared as \'local\'. They are local by default unless marked \'public\'.');
+            }
             return this.parseFunctionDeclaration(isPublic);
+        }
+
+        if (this.check(TokenType.KEYWORD, 'blueprint')) {
+            if (isLocal) {
+                throw new Error('Blueprints cannot be declared as \'local\'. They are local by default unless marked \'public\'.');
+            }
+            return this.parseBlueprintStatement();
+        }
+
+        // If public or local are set, we know we are parsing an assignment expression.
+        if (isPublic || isLocal) {
+            return this.parseExpressionStatement(isPublic, isLocal);
         }
 
         if (token.type === TokenType.KEYWORD) {
             switch (token.value) {
-                case 'import':
-                    return this.parseImportStatement();
-                case 'on':
-                    return this.parseEventHook();
-                case 'fn':
-                    return this.parseFunctionDeclaration();
-                case 'return':
-                    return this.parseReturnStatement();
-                case 'if':
-                    return this.parseIfStatement();
-                case 'for':
-                    return this.parseForStatement();
-                case 'break':
-                    return this.parseBreakStatement();
-                case 'continue':
-                    return this.parseContinueStatement();
+                case 'import':   return this.parseImportStatement();
+                case 'wait':     return this.parseWaitStatement();
+                case 'on':       return this.parseEventHook();
+                case 'return':   return this.parseReturnStatement();
+                case 'if':       return this.parseIfStatement();
+                case 'for':      return this.parseForStatement();
+                case 'break':    return this.parseBreakStatement();
+                case 'continue': return this.parseContinueStatement();
             }
         }
-        return this.parseExpressionStatement(isPublic);
+
+        // 3. Default: Expression Statement
+        return this.parseExpressionStatement();
     }
 
     private parseEventHook(): AST.EventHook
@@ -95,13 +113,83 @@ export class Parser
         return {type: 'EventHook', name, params, body, position};
     }
 
+    private parseBlueprintStatement(): AST.BlueprintStatement
+    {
+        const startPos = this.currentPos();
+        this.consume(TokenType.KEYWORD, 'blueprint');
+        const name = this.parseIdentifier();
+
+        // 1. Check for Primary Constructor Parameters "(name, age)"
+        const params: AST.Identifier[] = [];
+        if (this.match(TokenType.PUNCTUATION, '(')) {
+            if (!this.check(TokenType.PUNCTUATION, ')')) {
+                do {
+                    params.push(this.parseIdentifier());
+                } while (this.match(TokenType.PUNCTUATION, ','));
+            }
+            this.consume(TokenType.PUNCTUATION, ')');
+        }
+
+        this.consume(TokenType.PUNCTUATION, ':');
+        this.consume(TokenType.NEWLINE);
+        this.consume(TokenType.INDENT);
+
+        const properties: { key: AST.Identifier, value: AST.Expr }[] = [];
+        const methods: AST.FunctionDeclaration[] = [];
+
+        while (!this.match(TokenType.DEDENT) && !this.stream.isEof) {
+            if (this.match(TokenType.NEWLINE)) {
+                continue;
+            }
+
+            // 2. Handle Methods
+            if (this.check(TokenType.KEYWORD, 'fn')) {
+                const method = this.parseFunctionDeclaration(false);
+                if (method.type !== 'FunctionDeclaration') {
+                    throw new Error('Methods inside blueprints cannot be defined as method definitions.');
+                }
+                methods.push(method);
+                continue;
+            }
+
+            // 3. Handle Properties
+            if (this.check(TokenType.IDENTIFIER)) {
+                const key = this.parseIdentifier();
+
+                if (this.match(TokenType.PUNCTUATION, ':')) {
+                    const value = this.parseExpression();
+                    properties.push({ key, value });
+
+                    if (this.check(TokenType.NEWLINE)) {
+                        this.consume(TokenType.NEWLINE);
+                    }
+
+                    continue;
+                } else {
+                    throw new Error(`Expected ':' for property definition...`);
+                }
+            }
+
+            throw new Error("Expected 'fn' or property definition inside blueprint body");
+        }
+
+        return {
+            type: 'BlueprintStatement',
+            name,
+            properties,
+            params,
+            methods,
+            position: startPos
+        };
+    }
+
     private parseFunctionDeclaration(isPublic: boolean = false): AST.FunctionDeclaration | AST.MethodDefinition
     {
         const position = this.currentPos();
         this.consume(TokenType.KEYWORD, 'fn');
 
         const name = this.parseIdentifier();
-        let methodName = null;
+        let methodName: string | null = null;
         if (this.match(TokenType.PUNCTUATION, Punctuation.MEMBER_ACCESS)) {
             methodName = this.consume(TokenType.IDENTIFIER).value;
         }
@@ -117,6 +205,7 @@ export class Parser
             this.consume(TokenType.PUNCTUATION, ')');
         }
         this.consume(TokenType.PUNCTUATION, ':');
+
         const body = this.parseBlock();
 
         if (methodName && isPublic) {
@@ -131,6 +220,13 @@ export class Parser
     private parseBlock(): AST.Block
     {
         this.consume(TokenType.NEWLINE);
+
+        if (!this.check(TokenType.INDENT)) {
+            // Block is empty.
+            const position = this.currentPos();
+            return {type: 'Block', body: [], position};
+        }
+
         const position = this.currentPos();
         this.consume(TokenType.INDENT);
         const statements: AST.Stmt[] = [];
@@ -152,6 +248,15 @@ export class Parser
         this.consume(TokenType.NEWLINE);
 
         return {type: 'ImportStatement', moduleName, position};
+    }
+
+    private parseWaitStatement(): AST.WaitStatement
+    {
+        const position = this.currentPos();
+        this.consume(TokenType.KEYWORD, 'wait');
+        const duration = this.parseExpression();
+        this.consume(TokenType.NEWLINE);
+        return {type: 'WaitStatement', duration, position};
     }
 
     private parseReturnStatement(): AST.ReturnStatement
@@ -221,17 +326,27 @@ export class Parser
         return {type: 'ContinueStatement', position};
     }
 
-    private parseExpressionStatement(isPublic: boolean = false): AST.ExpressionStatement
+    private parseExpressionStatement(isPublic: boolean = false, isLocal: boolean = false): AST.ExpressionStatement
     {
         const position   = this.currentPos();
-        const expression = this.parseExpression(isPublic);
+        const expression = this.parseExpression(isPublic, isLocal);
         if (!this.stream.isEof) this.consume(TokenType.NEWLINE);
         return {type: 'ExpressionStatement', expression, position};
     }
 
-    private parseExpression(isPublic: boolean = false): AST.Expr
+    private parseExpression(isPublic: boolean = false, isLocal: boolean = false): AST.Expr
     {
         let left = this.parseLogicalOr();
+
+        if (isPublic || isLocal) {
+            if (left.type !== 'Identifier') {
+                throw new Error('Only identifiers can be marked as public or local in assignments.');
+            }
+
+            if (! this.check(TokenType.OPERATOR, '=')) {
+                throw new Error(`Expected assignment operator '=' after public/local identifier "${left.value}".`);
+            }
+        }
 
         if (this.match(TokenType.OPERATOR, '=')) {
             const right = this.parseExpression();
@@ -241,6 +356,7 @@ export class Parser
                 operator: '=',
                 right:    right,
                 isPublic,
+                isLocal,
             } as AST.AssignmentExpression;
         }
 
@@ -286,11 +402,32 @@ export class Parser
     {
         let left = this.parseAdditive();
 
-        while (this.check(TokenType.OPERATOR, '<') || this.check(TokenType.OPERATOR, '>') ||
-        this.check(TokenType.OPERATOR, '<=') || this.check(TokenType.OPERATOR, '>=')) {
-            const operator = this.stream.consume().value;
+        while (
+            this.check(TokenType.OPERATOR, '<') ||
+            this.check(TokenType.OPERATOR, '>') ||
+            this.check(TokenType.OPERATOR, '<=') ||
+            this.check(TokenType.OPERATOR, '>=') ||
+            this.check(TokenType.KEYWORD, 'in') ||
+            this.check(TokenType.KEYWORD, 'not') // <--- 1. Check for 'not' start
+            ) {
+            // 2. Handle 'not in' specifically
+            if (this.match(TokenType.KEYWORD, 'not')) {
+                if (!this.match(TokenType.KEYWORD, 'in')) {
+                    throw new Error("Unexpected token 'not'. Did you mean 'not in'?");
+                }
+
+                const operator = 'not in';
+                const right    = this.parseAdditive();
+                left = {type: 'BinaryExpression', left, operator, right} as AST.BinaryExpression;
+                continue;
+            }
+
+            // Standard operators
+            const token    = this.stream.consume();
+            const operator = token.value;
             const right    = this.parseAdditive();
-            left           = {type: 'BinaryExpression', left, operator, right} as AST.BinaryExpression;
+
+            left = {type: 'BinaryExpression', left, operator, right} as AST.BinaryExpression;
         }
 
         return left;
@@ -334,7 +471,23 @@ export class Parser
             return {type: 'UnaryExpression', operator: '-', argument} as AST.UnaryExpression;
         }
 
-        return this.parsePostfix();
+        return this.parseExponentiation();
+    }
+
+    private parseExponentiation(): AST.Expr
+    {
+        const left = this.parsePostfix();
+
+        if (this.match(TokenType.OPERATOR, '^')) {
+            const operator = '^';
+            // Recursively call parseUnary to handle:
+            // 1. Right Associativity: 2^3^4 -> 2^(3^4)
+            // 2. Unary in exponent: 2^-5
+            const right = this.parseUnary();
+            return {type: 'BinaryExpression', left, operator, right} as AST.BinaryExpression;
+        }
+
+        return left;
     }
 
     private parsePostfix(): AST.Expr
@@ -415,6 +568,28 @@ export class Parser
                 this.stream.consume();
                 return {type: 'Literal', value: null, raw: 'null'} as AST.Literal;
             }
+            if (token.value === 'new') {
+                this.stream.consume();
+                const startPos = this.currentPos();
+
+                // 1. Parse the Class Name (must be an identifier)
+                const className = this.parseIdentifier();
+
+                // 2. Parse Arguments (reusing your existing call arguments parser)
+                this.consume(TokenType.PUNCTUATION, '(');
+                const args: Expr[] = [];
+                do {
+                    args.push(this.parseExpression());
+                } while (this.match(TokenType.PUNCTUATION, ','));
+                this.consume(TokenType.PUNCTUATION, ')');
+
+                return {
+                    type: 'NewExpression',
+                    className: className,
+                    arguments: args,
+                    position: startPos
+                };
+            }
         }
 
         if (this.match(TokenType.PUNCTUATION, '[')) {
@@ -448,54 +623,118 @@ export class Parser
         }
     }
 
-    private parseArrayExpression(): AST.ArrayExpression
+    private parseArrayExpression(): AST.ArrayExpression | AST.ArrayComprehension
     {
-        const elements: AST.Expr[] = [];
-
         this.skipFormatting();
         const position = this.currentPos();
 
-        if (!this.check(TokenType.PUNCTUATION, ']')) {
-            do {
-                this.skipFormatting();
-                if (this.check(TokenType.PUNCTUATION, ']')) break;
+        // Early exit on empty array []
+        if (this.check(TokenType.PUNCTUATION, ']')) {
+            this.consume(TokenType.PUNCTUATION, ']');
+            return {type: 'ArrayExpression', elements: [], position};
+        }
 
-                elements.push(this.parseExpression());
+        // Parse the first element/expression
+        const firstExpr = this.parseExpression();
+        this.skipFormatting();
 
-                this.skipFormatting();
+        // Is this an Array Comprehension? Syntax: [ expr FOR i IN collection ]
+        if (this.match(TokenType.KEYWORD, 'for')) {
+            const iteratorToken = this.consume(TokenType.IDENTIFIER);
+            this.consume(TokenType.KEYWORD, 'in');
+            const collection = this.parseExpression();
 
-            } while (this.match(TokenType.PUNCTUATION, ','));
+            this.skipFormatting();
+            this.consume(TokenType.PUNCTUATION, ']');
+
+            return {
+                type: 'ArrayComprehension',
+                expression: firstExpr,
+                iterator: {
+                    type: 'Identifier',
+                    value: iteratorToken.value,
+                    position: iteratorToken.position
+                },
+                collection: collection,
+                position
+            } satisfies AST.ArrayComprehension;
+        }
+
+        // Standard Array List;  We already have the first element, now look for commas
+        const elements: AST.Expr[] = [firstExpr];
+
+        while (this.match(TokenType.PUNCTUATION, ',')) {
+            this.skipFormatting();
+
+            // Handle trailing comma: [1, 2, ]
+            if (this.check(TokenType.PUNCTUATION, ']')) break;
+
+            elements.push(this.parseExpression());
+            this.skipFormatting();
         }
 
         this.consume(TokenType.PUNCTUATION, ']');
+
         return {type: 'ArrayExpression', elements, position};
     }
 
-    private parseObjectExpression(): AST.ObjectExpression
+    private parseObjectExpression(): AST.ObjectExpression | AST.ObjectComprehension
     {
+        this.skipFormatting();
+        const startPos = this.currentPos();
+
+        // Early exit on empty objects.
+        if (this.check(TokenType.PUNCTUATION, '}')) {
+            this.consume(TokenType.PUNCTUATION, '}');
+            return {type: 'ObjectExpression', properties: [], position: startPos};
+        }
+
+        // Parse the first Key-Value pair
+        const firstKey = this.parseIdentifier();
+        this.consume(TokenType.PUNCTUATION, ':');
+        const firstValue = this.parseExpression();
+
+        // Is this a Comprehension?
+        if (this.match(TokenType.KEYWORD, 'for')) {
+            const iterator = this.parseIdentifier();
+            this.consume(TokenType.KEYWORD, 'in');
+            const collection = this.parseExpression();
+            this.consume(TokenType.PUNCTUATION, '}');
+
+            return {
+                type:       'ObjectComprehension',
+                key:        firstKey,
+                value:      firstValue,
+                iterator:   iterator,
+                collection: collection,
+                position:   startPos
+            };
+        }
+
         const properties: AST.Property[] = [];
 
-        this.skipFormatting();
-        const position = this.currentPos();
+        properties.push({
+            type:     'Property',
+            key:      firstKey,
+            value:    firstValue,
+            position: startPos
+        });
 
-        if (!this.check(TokenType.PUNCTUATION, '}')) {
-            do {
-                this.skipFormatting();
-                if (this.check(TokenType.PUNCTUATION, '}')) break;
+        while (!this.check(TokenType.PUNCTUATION, '}')) {
+            this.match(TokenType.PUNCTUATION, ',');
+            this.skipFormatting();
 
-                const key = this.parseIdentifier();
-                this.consume(TokenType.PUNCTUATION, ':');
-                const value = this.parseExpression();
+            if (this.check(TokenType.PUNCTUATION, '}')) break;
 
-                properties.push({type: 'Property', key, value, position});
+            const key = this.parseIdentifier();
+            this.consume(TokenType.PUNCTUATION, ':');
+            const value = this.parseExpression();
 
-                this.skipFormatting();
-
-            } while (this.match(TokenType.PUNCTUATION, ','));
+            properties.push({type: 'Property', key, value, position: this.currentPos()});
         }
 
         this.consume(TokenType.PUNCTUATION, '}');
-        return {type: 'ObjectExpression', properties, position};
+        return {type: 'ObjectExpression', properties, position: startPos};
     }
 
     private parseIdentifier(): AST.Identifier

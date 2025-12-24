@@ -16,6 +16,10 @@ export const Keywords = [
     'this',
     'and',
     'or',
+    'local',
     'public',
     'import',
+    'wait',
+    'new',
+    'blueprint',
 ] as const;

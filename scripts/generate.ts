@@ -60,12 +60,12 @@ if (fs.existsSync(opsDir)) {
 }
 
 // 2. Generate Class
-const output = `
-import { ForbiddenKeys }  from './ForbiddenKeys.js';
-import { dispatchNative } from './NativeDispatcher.js';
-import { State }          from './State.js';
-import { Opcode }         from '../Compiler/Opcodes.js';
-import { Program }        from '../Compiler/Program.js';
+const output = `// This file is auto-generated via "scripts/generate.ts". Do not edit directly.
+import { ForbiddenKeys }       from './ForbiddenKeys.js';
+import { dispatchNative }      from './NativeDispatcher.js';
+import { State }               from './State.js';
+import { Instruction, Opcode } from '../Compiler/Opcodes.js';
+import { Program }             from '../Compiler/Program.js';
 
 /**
  * Handles instruction execution for the VM.
@@ -84,30 +84,57 @@ export abstract class InstructionSet
      * Executes instructions until the budget is exhausted or the VM halts.
      *
      * @param {number} budget The maximum number of instructions to execute.
+     * @param {number} deltaTime The time elapsed since the last execution (in milliseconds).
      * @returns {boolean} True if the VM has halted, false otherwise.
      */
-    public execute(budget: number): boolean
+    protected execute(budget: number, deltaTime: number = 16.6): [number, boolean]
     {
         const state = this.state;
-        const instructions = this.program.instructions;
 
-        while (budget > 0 && !state.isHalted && state.ip < instructions.length) {
+        state.wallTime += deltaTime;
+
+        for (const frame of state.frames) {
+            if (frame.sleepTimer > 0) {
+                frame.sleepTimer -= deltaTime;
+                frame.sleepTimer = Math.max(0, frame.sleepTimer);
+            }
+        }
+
+        if (state.sleepTime > 0) {
+            state.sleepTime -= deltaTime;
+            state.sleepTime = Math.max(0, state.sleepTime);
+        }
+
+        if (state.isSleeping) {
+            return [budget, false];
+        }
+
+        while (budget > 0 && ! state.isHalted && ! state.isSleeping) {
+            budget--;
+
+            // Note: Don't use the cached version of program/instructions here,
+            //       as the currentProgram may change due to CALL/CALL_METHOD/IMPORT.
+            const instructions = state.currentProgram.instructions;
+            if (state.ip >= instructions.length) {
+                state.isHalted = true;
+                break;
+            }
+
             const instr = instructions[state.ip];
-
             if (! instr?.op) {
-                throw new Error(\`Instruction format invalid: \${JSON.stringify(instruction)}\`);
+                throw new Error(\`Instruction format invalid: \${JSON.stringify(instr)}\`);
             }
 
             state.ip++; // Automatic IP Increment (Standard VM behavior)
 
             switch (instr.op) {
 ${allOps.map(op => `                case ${op.opcode}: this.__op_${op.funcName}(instr.arg); break;`).join('\n')}
+                default:
+                    throw new Error(\`Unknown opcode: \${instr.op}\`);
             }
-
-            budget--;
         }
 
-        return state.isHalted;
+        return [budget, state.isHalted];
     }
     ${allOps.map(op => {
     const processedBody = op.body
