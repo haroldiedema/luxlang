@@ -6,8 +6,8 @@ export type Program = {
     moduleName?: string;
     instructions: Instruction[];
     references: {
-        functions: Record<string, FunctionAddress>;
-        events: Record<string, FunctionAddress>;
+        functions: Record<string, CallableAddress>;
+        events: Record<string, CallableAddress>;
     };
     exported: {
         functions: string[];
@@ -15,7 +15,7 @@ export type Program = {
     };
 }
 
-export type FunctionAddress = {
+export type CallableAddress = {
     address: number;
     numArgs: number;
 }

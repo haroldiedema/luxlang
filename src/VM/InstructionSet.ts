@@ -228,8 +228,8 @@ export abstract class InstructionSet
         this.state.stack.splice(thisIndex, 1);
     
         const frame = this.state.pushFrame(this.state.ip, {
-            program: blueprint.prog,
             name:    `super ${blueprint.name}`,
+            program: blueprint.prog,
         });
     
         frame.locals['this'] = instance;
@@ -322,6 +322,10 @@ export abstract class InstructionSet
         if (! frame) {
             return;
         }
+    
+        // TODO: Add export tracking to frames and modules.
+        //       Exported variables should be tied to the module scope they came from.
+        //       This allows "live" bindings between modules.
     
         frame.exports[name] = val;
     }
@@ -557,6 +561,8 @@ export abstract class InstructionSet
         if (parent !== null && parent.type !== 'Blueprint') {
             throw new Error(`Runtime Error: Class '${name}' extends a non-blueprint value (${parent?.type || 'null'}).`);
         }
+    
+        console.log(`Making blueprint '${name}' that extends '${parent ? parent.name : 'null'}, belongs to program #${this.state.currentProgram.hash}'`);
     
         const blueprint = {
             type:            'Blueprint',

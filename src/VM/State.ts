@@ -82,7 +82,6 @@ export class State
      */
     public get currentProgram(): Program
     {
-        // TODO: Replace with hash lookup.
         return this.topFrame?.program ?? this._program;
     }
 
@@ -285,23 +284,37 @@ export class State
      * @param {boolean} local - True to force setting in local scope.
      * @param value
      */
-    public setVar(name: string, value: any, local: boolean = false)
-    {
-        const scope: Record<string, any> = this._scopes[this.currentProgram.hash] || {};
+    public setVar(name: string, value: any, local: boolean = false) {
+        const scopeName = this.currentProgram.hash;
+        const scope = this._scopes[scopeName];
+        const topFrame = this.topFrame;
 
-        if (this.topFrame && ! this.topFrame.isModule) {
-            const locals = this._frames[this._frames.length - 1].locals;
-
-            if (! local && typeof locals[name] === 'undefined' && typeof scope[name] !== 'undefined') {
-                scope[name] = value;
-                return;
-            }
-
-            locals[name] = value;
+        // 1. Explicit Local ('local val = ...')
+        if (local && topFrame) {
+            topFrame.locals[name] = value;
             return;
         }
 
-        scope[name] = value;
+        // 2. Check for Shadow (Is it already a local?)
+        // This fixes the "Mid-Stream" Shadow test
+        if (topFrame && typeof topFrame.locals[name] !== 'undefined') {
+            topFrame.locals[name] = value;
+            return;
+        }
+
+        // 3. Check for Global (Does it exist in the module/program scope?)
+        // This fixes the "Pre-flight" Actor Count
+        if (scope && typeof scope[name] !== 'undefined') {
+            scope[name] = value;
+            return;
+        }
+
+        // 4. Fallback creation
+        if (topFrame && !topFrame.isModule) {
+            topFrame.locals[name] = value;
+        } else if (scope) {
+            scope[name] = value;
+        }
     }
 
     /**

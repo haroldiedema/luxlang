@@ -536,6 +536,7 @@ export class Compiler
         const iterNextIndex = this.program.instructions.length;
 
         this.loopStack.push({
+            type:            'for',
             continueAddress: iterNextIndex,
             breakPatchList:  [],
         });
@@ -563,42 +564,65 @@ export class Compiler
         }
     }
 
-    private visitWhileStatement(node: AST.WhileStatement) {
+    private visitWhileStatement(node: AST.WhileStatement)
+    {
         const startAddress = this.program.instructions.length;
 
-        // 1. Evaluate condition
         this.visit(node.condition);
-
-        // 2. Jump to end if false
         const exitJump = this.emit(Opcode.JMP_IF_FALSE, 0);
 
-        // 3. Compile body
-        // Note: If you have break/continue, push startAddress to continueStack
-        // and exitJump to breakStack here.
+        // Push loop context
+        this.loopStack.push({
+            type:            'while',
+            continueAddress: startAddress,
+            breakPatchList:  [],
+        });
+
         this.visit(node.body);
 
-        // 4. Loop back to condition
+        const loopCtx = this.loopStack.pop()!;
         this.emit(Opcode.JMP, startAddress);
 
-        // 5. Patch the exit jump
+        // Patch the main exit jump
         this.patch(exitJump, this.program.instructions.length);
+
+        // Patch all 'break' statements found inside the loop
+        for (const breakIndex of loopCtx.breakPatchList) {
+            this.patch(breakIndex, this.program.instructions.length);
+        }
     }
 
-    private visitDoWhileStatement(node: AST.DoWhileStatement) {
+    private visitDoWhileStatement(node: AST.DoWhileStatement)
+    {
         const startAddress = this.program.instructions.length;
+        const ctx: LoopContext = {
+            continueAddress: -1,
+            breakPatchList: [],
+            continuePatchList: [],
+            type: 'do-while'
+        };
+        this.loopStack.push(ctx);
 
-        // 1. Compile body first
         this.visit(node.body);
 
-        // 2. Evaluate condition
+        // NOW we know where the condition is
         const conditionAddress = this.program.instructions.length;
-        this.visit(node.condition);
 
-        // 3. Jump back to start if true
+        // Patch all 'continue' jumps to point here
+        for (const patchIdx of ctx.continuePatchList ?? []) {
+            this.patch(patchIdx, conditionAddress);
+        }
+
+        this.visit(node.condition);
         this.emit(Opcode.JMP_IF_TRUE, startAddress);
 
-        // Note: If you have 'break', you'd patch it to the current
-        // program length here.
+        this.loopStack.pop();
+
+        // Patch all 'break' jumps to point to the instruction AFTER the loop
+        const exitAddress = this.program.instructions.length;
+        for (const patchIdx of ctx.breakPatchList) {
+            this.patch(patchIdx, exitAddress);
+        }
     }
 
     private visitBreakStatement(node: AST.BreakStatement)
@@ -607,10 +631,15 @@ export class Compiler
             throw new Error('Compiler Error: \'break\' used outside of loop');
         }
 
-        this.emit(Opcode.POP); // Clean up the iterator value on the stack.
-        const index = this.emit(Opcode.JMP, -1);
+        const ctx = this.loopStack[this.loopStack.length - 1];
 
-        this.loopStack[this.loopStack.length - 1].breakPatchList.push(index);
+        // Only POP if we are breaking out of a 'for' loop that has an iterator on stack
+        if (ctx.type === 'for') {
+            this.emit(Opcode.POP);
+        }
+
+        const index = this.emit(Opcode.JMP, -1);
+        ctx.breakPatchList.push(index);
     }
 
     private visitContinueStatement(node: AST.ContinueStatement)
@@ -620,7 +649,17 @@ export class Compiler
         }
 
         const ctx = this.loopStack[this.loopStack.length - 1];
-        this.emit(Opcode.JMP, ctx.continueAddress);
+
+        if (ctx.type === 'do-while') {
+            const index = this.emit(Opcode.JMP, -1);
+            if (! ctx.continuePatchList) {
+                ctx.continuePatchList = [];
+            }
+
+            ctx.continuePatchList.push(index);
+        } else {
+            this.emit(Opcode.JMP, ctx.continueAddress);
+        }
     }
 
     private visitBlueprintStatement(node: AST.BlueprintStatement)
@@ -660,7 +699,8 @@ export class Compiler
             for (const arg of node.parentArgs ?? []) {
                 this.visit(arg); // Push Args
             }
-            this.emit(Opcode.LOAD, node.parent.value); // Push Parent Blueprint
+
+            this.visit(node.parent);
             this.emit(Opcode.CALL_PARENT, node.parentArgs?.length ?? 0);
             this.emit(Opcode.POP); // Pop the 'this' returned by RET
         }
@@ -701,7 +741,8 @@ export class Compiler
 
         // Push the parent (or NULL) on the stack. Consumed by MAKE_BLUEPRINT.
         if (node.parent) {
-            this.emit(Opcode.LOAD, node.parent.value);
+            this.visit(node.parent);
+            // this.emit(Opcode.LOAD, node.parent.value);
         } else {
             this.emit(Opcode.CONST, null);
         }
@@ -976,6 +1017,8 @@ export class Compiler
 
 interface LoopContext
 {
+    type?: string;
     continueAddress: number;
     breakPatchList: number[];
+    continuePatchList?: number[];
 }

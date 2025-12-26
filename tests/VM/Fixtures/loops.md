@@ -177,3 +177,83 @@ out(results)
 ```
 
 ---
+
+# While Loop Break/Continue
+
+This tests that `break` exits the loop entirely and `continue` skips the remaining body to re-evaluate the condition at the top.
+
+```python
+i = 0
+results = []
+while i < 10:
+    i = i + 1
+    if i % 2 == 0:
+        continue
+    if i > 5:
+        break
+    results.push(i)
+
+out(results)
+
+```
+
+## PASS
+
+```json
+[[1, 3, 5]]
+```
+
+---
+
+# Do-While Loop Break/Continue
+
+In a `do-while` loop, `continue` should jump specifically to the condition check at the bottom, not the very top of the body.
+
+```python
+i = 0
+results = []
+do:
+    i = i + 1
+    if i == 2:
+        continue
+    if i == 4:
+        break
+    results.push(i)
+while i < 10
+
+out(results)
+```
+
+## PASS
+
+```json
+[[1, 3]]
+```
+
+---
+
+# Nested Loop Interruption
+
+This ensures that a `break` only exits the innermost loop and doesn't accidentally terminate the outer loop.
+
+```python
+outer = 0
+total = 0
+while outer < 3:
+    inner = 0
+    while inner < 10:
+        if inner == 2:
+            break
+        total = total + 1
+        inner = inner + 1
+    outer = outer + 1
+
+out(total)
+
+```
+
+## PASS
+
+- 6
+
+---

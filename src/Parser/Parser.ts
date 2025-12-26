@@ -18,21 +18,29 @@ export class Parser
 
     public parse(): AST.Script
     {
-        const statements: AST.Stmt[] = [];
-        while (! this.stream.isEof) {
-            if (this.match(TokenType.NEWLINE)) continue;
-            statements.push(this.parseStatement());
+        try {
+            const statements: AST.Stmt[] = [];
+            while (! this.stream.isEof) {
+                if (this.match(TokenType.NEWLINE)) continue;
+                statements.push(this.parseStatement());
+            }
+            return {
+                type:     'Script',
+                body:     statements,
+                position: {
+                    lineStart:   1,
+                    lineEnd:     1,
+                    columnStart: 1,
+                    columnEnd:   1,
+                },
+            };
+        } catch (e) {
+            if (! (e instanceof Error)) {
+                throw e;
+            }
+
+            throw new Error(`Parse Error: ${e.message} at line ${this.stream.peek()?.position.lineStart}, column ${this.stream.peek()?.position.columnStart}`);
         }
-        return {
-            type:     'Script',
-            body:     statements,
-            position: {
-                lineStart:   1,
-                lineEnd:     1,
-                columnStart: 1,
-                columnEnd:   1,
-            },
-        };
     }
 
     private parseStatement(): AST.Stmt
@@ -142,12 +150,27 @@ export class Parser
             this.consume(TokenType.PUNCTUATION, ')');
         }
 
-        let parent: AST.Identifier | undefined,
+        let parent: AST.Identifier | AST.MemberExpression | undefined = undefined,
             parentArgs: AST.Expr[] = [];
 
         // Check for extends.
         if (this.match(TokenType.KEYWORD, 'extends')) {
-            parent = this.parseIdentifier();
+            // 1. We expect at least an identifier
+            let primary = this.parsePrimary();
+
+            // 2. While there's a dot, keep wrapping it in MemberExpressions
+            while (this.match(TokenType.PUNCTUATION, '.')) {
+                const property = this.parseIdentifier();
+                primary = {
+                    type: 'MemberExpression',
+                    object: primary,
+                    property: property,
+                    computed: false,
+                    position: primary.position // or combine positions
+                };
+            }
+
+            parent = primary as AST.Identifier | AST.MemberExpression;
 
             if (this.match(TokenType.PUNCTUATION, '(')) {
                 if (! this.check(TokenType.PUNCTUATION, ')')) {

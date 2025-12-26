@@ -16,5 +16,9 @@ export function _export(state: State): void
         return;
     }
 
+    // TODO: Add export tracking to frames and modules.
+    //       Exported variables should be tied to the module scope they came from.
+    //       This allows "live" bindings between modules.
+
     frame.exports[name] = val;
 }

@@ -1,17 +1,8 @@
-export * from './Compiler/index.js';
-export * from './Debugger/index.js';
-export * from './Parser/index.js';
-export * from './Tokenizer/index.js';
-export * from './VM/index.js';
+# Pre-flight Test
 
-// ---
-import { Compiler } from './Compiler/index.js';
-import { Debugger } from './Debugger/index.js';
-import { Parser }            from './Parser/index.js';
-import { Tokenizer } from './Tokenizer/index.js';
-import { VirtualMachine } from './VM/index.js';
+This test combines most, if not all, of the language features to ensure that the VM can handle complex scenarios.
 
-const code = `
+```
 import "engine"
 
 blueprint Player(name) extends engine.Actor:
@@ -42,9 +33,11 @@ p.level_up(5)
 out(p.describe())
 out("Total Actors: " + engine.actor_count)
 out("Inventory: " + p.inventory[0])
-`;
+```
 
-const code2 = `
+## Module: engine
+
+```
 public actor_count = 0
 
 public blueprint Actor:
@@ -56,18 +49,13 @@ public blueprint Actor:
 
     fn describe():
         return "Entity #" + this.id
-`;
+```
 
-// console.log(Tokenizer.tokenize(code).tokens.map(t => `${t.type} "${t.value}"`).join('\n'));
+## PASS
 
-const program = Compiler.compile(code);
-const vm = new VirtualMachine(program, {
-    functions: {
-        out: (...args: any[]) => console.log("[VM OUTPUT]:", ...args),
-    },
-    resolveModule: (name: string) => {
-        return Compiler.compile(code2, name)
-    }
-});
+- [Parent.Init] Current actor_count:0
+- Entity #1: Lux (XP: 20)
+- Total Actors: 1
+- Inventory: Wooden Sword
 
-Debugger.create(vm);
+---

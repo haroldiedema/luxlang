@@ -1,4 +1,4 @@
-import { Printer, Program }                                 from '../Compiler/index.js';
+import { Program }                                          from '../Compiler/index.js';
 import { ANSI }                                             from '../Utility/ANSI.js';
 import { Deserializer }                                     from './Deserializer.js';
 import { DiagnosticInfo, ExecutionResult, StackTraceFrame } from './ExecutionResult.js';
@@ -175,34 +175,6 @@ export class VirtualMachine extends InstructionSet
         }
 
         return hash.toString(16);
-    }
-
-    /**
-     * Dump the current state of the VM instructions to the console.
-     */
-    public dump(): void
-    {
-        Object.keys(this.moduleCache).forEach((name: string) => {
-            if (typeof this.moduleCache[name] === 'object' && this.moduleCache[name].instructions) {
-                this.dumpProgram(this.moduleCache[name] as unknown as Program);
-            }
-        });
-
-        this.dumpProgram(this.program);
-    }
-
-    private dumpProgram(program: Program): void
-    {
-        console.log(`--- Program [${program.moduleName || 'main'}] ---`);
-
-        const lines: string[] = Printer.print(program.instructions, {
-            includeComments:  true,
-            includePositions: true,
-        });
-
-        for (let i = 0; i < lines.length; i++) {
-            console.log(` ${this.state.ip === i ? '>' : ' '} ` + lines[i]);
-        }
     }
 
     private executeNextEvent(): void

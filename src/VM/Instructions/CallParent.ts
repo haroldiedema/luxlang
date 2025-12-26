@@ -21,8 +21,8 @@ export function callParent(state: State, arg: any): void
     state.stack.splice(thisIndex, 1);
 
     const frame = state.pushFrame(state.ip, {
-        program: blueprint.prog,
         name:    `super ${blueprint.name}`,
+        program: blueprint.prog,
     });
 
     frame.locals['this'] = instance;

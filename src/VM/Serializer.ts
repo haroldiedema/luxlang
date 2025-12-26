@@ -1,4 +1,3 @@
-import events    from 'node:events';
 import { State } from './State.js';
 
 export class Serializer
@@ -17,7 +16,7 @@ export class Serializer
             stack:     this.process(state.stack),
             scopes:    this.process(state.scopes),
             frames:    this.process(state.frames),
-            events:    this.process(events),
+            events:    this.process(state.eventQueue),
             sleepTime: state.sleepTime,
             deltaTime: state.deltaTime,
         };

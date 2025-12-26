@@ -91,7 +91,7 @@ export interface BlueprintStatement extends BaseStmt {
     properties: { key: Identifier, value: Expr }[];
     methods: FunctionDeclaration[];
     isPublic?: boolean;
-    parent?: Identifier;
+    parent?: Identifier | MemberExpression;
     parentArgs?: Expr[];
 }
 
