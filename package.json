@@ -14,7 +14,8 @@
     "email": "harold@iedema.me",
     "url": "https://github.com/haroldiedema"
   },
-  "homepage": "https://github.com/haroldiedema/lux-lang",
+  "homepage": "https://github.com/haroldiedema/luxlang",
+  "repository": "https://github.com/haroldiedema/luxlang",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
