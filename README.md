@@ -232,7 +232,8 @@ blueprint Player(name):
 
 Or via the `init` function:
 
-```blueprint Enemy:
+```
+blueprint Enemy:
     name: "Anonymous"
     hp: 50
 
