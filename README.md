@@ -14,6 +14,11 @@ It features a **Bytecode Virtual Machine (VM)** with a "Tick Budget" system, all
 * **Native Interop:** Easily bind TypeScript/JavaScript functions to the VM.
 * **Safe Scoping:** Variables are function-scoped; no accidental global leaks.
 * **State Persistence:** VM state can be imported & exported.
+* **Modules:** Support for reusable script modules.
+* **Comprehensions:** Array and Object comprehensions for concise data transformations.
+
+Take a look at the fixture files in the `tests/VM/Fixtures` directory for a
+complete list of fixture files in Markdown format that demonstrate the language features.
 
 ---
 
@@ -39,10 +44,10 @@ print(x)
 `;
 
 // 1. Compile.
-const bytecode = Compiler.compile(source);
+const program = Compiler.compile(source);
 
 // 2. Create a VM.
-const vm = new VM(bytecode);
+const vm = new VM(program);
 
 // 3. Run. You can call run() on every frame.
 const isHalted = vm.run(100); // Run with a budget of 100 ops
