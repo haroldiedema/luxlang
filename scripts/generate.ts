@@ -142,7 +142,7 @@ ${allOps.map(op => `                case ${op.opcode}: this.__op_${op.funcName}(
         .replace(/natives\./g, 'this.natives.')
         .replace(/moduleCache/g, 'this.moduleCache')
         .replace(/resolveModule\(/g, 'this.resolveModule(')
-        .replace(/program\./g, 'this.program.')
+        .replace(/\s+program\./g, 'this.program.')
         .trim()
         .replace(/\n/g, '\n    ');
 

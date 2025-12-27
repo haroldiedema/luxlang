@@ -59,3 +59,82 @@ public blueprint Actor:
 - Inventory: Wooden Sword
 
 ---
+
+# Live Scope & Singleton Access
+
+This test simulates a "Stock Market" to verify that multiple modules (Main and Trader) see the exact same live data from a third module (Market).
+
+1. **Live Cross-Module Access:** The `trader` module reading `market.price` sees changes immediately.
+2. **Singleton Caching:** Verify that the `market` imported by `Main` is the *same instance* as the `market` imported by `trader`.
+3. **Internal Mutation:** Verify that functions like `tick()` correctly mutate the module-scoped `price` variable.
+
+```
+import "market"
+import "trader"
+
+// 1. Verify Initial State
+// Market starts at 100
+out("Market Open: " + market.price)
+
+// 2. Instantiate a class from a different module
+// The Bot class inside 'trader' imports 'market' internally.
+// We need to ensure 'trader' sees the same 'market' instance as we do.
+bot = new trader.Bot()
+
+// 3. Simulation Loop
+// We mutate the market state from Main, then ask the Bot to act on it.
+ticks = 0
+while ticks < 3:
+    market.tick() // Increases price by 10
+    bot.buy()     // Bot records the current market.price
+    ticks = ticks + 1
+
+// 4. Verify Local View (Main -> Market)
+out("Current Price: " + market.price)
+
+// 5. Verify Remote View (Trader -> Market)
+// If live bindings work, the bot bought at 110, 120, and 130.
+// If they failed (snapshotting), the bot would have bought at 100 three times.
+out("Bot Portfolio: " + bot.portfolio[0] + ", " + bot.portfolio[1] + ", " + bot.portfolio[2])
+
+// 6. Test Radical State Change
+market.crash()
+out("Market Crash: " + market.price)
+
+bot.buy()
+out("Bottom Feeding: " + bot.portfolio[3])
+```
+
+## Module: market
+
+```
+public price = 100
+
+// Mutates the module-scoped variable
+public fn tick():
+    price = price + 10
+
+public fn crash():
+    price = 0
+```
+
+## Module: trader
+
+```
+import "market"
+
+public blueprint Bot:
+    portfolio: []
+
+    fn buy():
+        // Accesses the live variable 'price' from the imported 'market' module
+        this.portfolio.push(market.price)
+```
+
+## PASS
+
+- Market Open: 100
+- Current Price: 130
+- Bot Portfolio: 110, 120, 130
+- Market Crash: 0
+- Bottom Feeding: 0

@@ -45,6 +45,18 @@ export class Serializer
         const id = ++this.idCounter;
         this.objectToId.set(value, id);
 
+        if (Object.prototype.hasOwnProperty.call(value, '__vm_meta')) {
+            const meta = value.__vm_meta;
+
+            this.heap[id] = {
+                $type:    'ModuleNamespace',
+                hash:     meta.hash,
+                bindings: meta.bindings
+            };
+
+            return {$ref: id};
+        }
+
         const data: any = Array.isArray(value) ? [] : {};
         for (const k in value) {
             data[k] = this.process(value[k]);

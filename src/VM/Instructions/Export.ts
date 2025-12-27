@@ -1,24 +1,47 @@
-import {State} from '../State.js';
+import { State } from '../State.js';
 
 /**
  * @opcode Opcode.EXPORT
  */
 export function _export(state: State): void
 {
-    const val  = state.pop();
-    const name = state.pop();
-
+    const exportName = state.pop();
+    const sourceName = state.pop();
     const frame = state.frames[state.frames.length - 1];
 
-    // If we are in the main scope (no frames) or a frame without export tracking,
-    // we can either throw or ignore. Usually, modules run inside a frame.
-    if (! frame) {
-        return;
+    if (!frame) return;
+
+    const moduleHash = frame.program.hash;
+    const exports    = frame.exports;
+
+    // 1. Metadata setup (Same as before)
+    if (!Object.prototype.hasOwnProperty.call(exports, '__vm_meta')) {
+        Object.defineProperty(exports, '__vm_meta', {
+            value: {
+                hash: moduleHash,
+                bindings: {} as Record<string, string>
+            },
+            enumerable: false,
+            writable: true,
+            configurable: true
+        });
     }
 
-    // TODO: Add export tracking to frames and modules.
-    //       Exported variables should be tied to the module scope they came from.
-    //       This allows "live" bindings between modules.
+    exports.__vm_meta.bindings[exportName] = sourceName;
 
-    frame.exports[name] = val;
+    // 2. Define Getter AND Setter
+    Object.defineProperty(exports, exportName, {
+        enumerable: true,
+        configurable: true,
+        get: () => {
+            const scope = state.scopes[moduleHash];
+            return scope ? scope[sourceName] : undefined;
+        },
+        set: (val: any) => {
+            const scope = state.scopes[moduleHash];
+            if (scope) {
+                scope[sourceName] = val;
+            }
+        }
+    });
 }

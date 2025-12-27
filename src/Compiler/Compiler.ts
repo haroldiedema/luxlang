@@ -465,10 +465,8 @@ export class Compiler
                 const varName: string = (node.left as AST.Identifier).value;
                 this.program.exported.variables.push(varName);
 
-                this.emit(Opcode.LOAD, varName);
-                this.emit(Opcode.DUP); // Duplicate value for export
-                this.emit(Opcode.CONST, varName);
-                this.emit(Opcode.SWAP);
+                this.emit(Opcode.CONST, varName); // Internal variable name
+                this.emit(Opcode.CONST, varName); // External export name
                 this.emit(Opcode.EXPORT);
             }
             return;
@@ -594,12 +592,12 @@ export class Compiler
 
     private visitDoWhileStatement(node: AST.DoWhileStatement)
     {
-        const startAddress = this.program.instructions.length;
+        const startAddress     = this.program.instructions.length;
         const ctx: LoopContext = {
-            continueAddress: -1,
-            breakPatchList: [],
+            continueAddress:   -1,
+            breakPatchList:    [],
             continuePatchList: [],
-            type: 'do-while'
+            type:              'do-while',
         };
         this.loopStack.push(ctx);
 
@@ -782,11 +780,8 @@ export class Compiler
 
         if (node.isPublic) {
             this.program.exported.functions.push(node.name.value);
-            this.emit(Opcode.LOAD, node.name.value);
-            this.emit(Opcode.DUP);
-            this.emit(Opcode.STORE, [node.name.value]);
-            this.emit(Opcode.CONST, node.name.value);
-            this.emit(Opcode.SWAP);
+            this.emit(Opcode.CONST, node.name.value); // Internal
+            this.emit(Opcode.CONST, node.name.value); // External
             this.emit(Opcode.EXPORT);
         }
     }
@@ -887,8 +882,9 @@ export class Compiler
             this.emit(Opcode.MAKE_FUNCTION, {name: funcName, addr: ref.address, args: ref.numArgs});
             this.emit(Opcode.DUP);
             this.emit(Opcode.STORE, [funcName]);
-            this.emit(Opcode.CONST, funcName);
-            this.emit(Opcode.SWAP);
+
+            this.emit(Opcode.CONST, funcName);   // Internal
+            this.emit(Opcode.CONST, funcName);   // External
             this.emit(Opcode.EXPORT);
         }
     }

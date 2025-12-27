@@ -49,10 +49,9 @@ export function ret(state: State, program: Program, arg: any, moduleCache: any):
     }
 
     if (frame.isModule) {
-        const exports: Record<string, any> = {};
-        for (const [key, value] of Object.entries(frame.exports)) {
-            exports[key] = value;
-        }
+        const exports = {};
+        const descriptors = Object.getOwnPropertyDescriptors(frame.exports);
+        Object.defineProperties(exports, descriptors);
 
         if (frame.moduleName) {
             moduleCache[frame.moduleName] = exports;

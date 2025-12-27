@@ -13,8 +13,6 @@ export function makeBlueprint(state: State, arg: any): void
         throw new Error(`Runtime Error: Class '${name}' extends a non-blueprint value (${parent?.type || 'null'}).`);
     }
 
-    console.log(`Making blueprint '${name}' that extends '${parent ? parent.name : 'null'}, belongs to program #${state.currentProgram.hash}'`);
-
     const blueprint = {
         type:            'Blueprint',
         name:            name,

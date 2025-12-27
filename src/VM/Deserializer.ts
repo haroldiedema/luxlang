@@ -4,11 +4,14 @@ export class Deserializer
 {
     private idToObject: Map<number, any> = new Map();
     private heap: Record<number, any>    = {};
+    private state: State | null          = null;
 
     public deserialize(hash: string, json: string, state: State): void
     {
-        const data = JSON.parse(json);
-        this.heap  = data.heap;
+        const data: any = JSON.parse(json);
+        this.heap       = data.heap;
+        this.state      = state;
+
         this.idToObject.clear();
 
         if (data.state.hash !== hash) {
@@ -16,12 +19,17 @@ export class Deserializer
         }
 
         state.ip = data.state.ip;
+
         state.import({
-            scopes: this.restore(data.state.scopes),
-            stack:  this.restore(data.state.stack),
-            frames: this.restore(data.state.frames),
-            events: this.restore(data.state.events),
+            scopes:    this.restore(data.state.scopes),
+            stack:     this.restore(data.state.stack),
+            frames:    this.restore(data.state.frames),
+            events:    this.restore(data.state.events),
+            sleepTime: data.state.sleepTime,
+            deltaTime: data.state.deltaTime,
         });
+
+        this.state = null;
     }
 
     private restore(value: any): any
@@ -31,9 +39,44 @@ export class Deserializer
 
             if (this.idToObject.has(id)) return this.idToObject.get(id);
 
-            const raw      = this.heap[id];
-            const instance = Array.isArray(raw) ? [] : {}; // Or new Map() checks
+            const raw = this.heap[id];
 
+            if (raw && raw.$type === 'ModuleNamespace') {
+                const moduleObj: any = {};
+                this.idToObject.set(id, moduleObj);
+
+                const state = this.state!;
+
+                Object.defineProperty(moduleObj, '__vm_meta', {
+                    value:        {hash: raw.hash, bindings: raw.bindings},
+                    enumerable:   false,
+                    writable:     true,
+                    configurable: true,
+                });
+
+                for (const [exportName, sourceName] of Object.entries(raw.bindings)) {
+                    Object.defineProperty(moduleObj, exportName, {
+                        enumerable:   true,
+                        configurable: true,
+                        get:          () => {
+                            // [FIX] Use the local 'state' variable, NOT 'this.state'
+                            const scope = state.scopes[raw.hash];
+                            return scope ? scope[sourceName as string] : undefined;
+                        },
+                        set:          (val: any) => {
+                            // [FIX] Use the local 'state' variable, NOT 'this.state'
+                            const scope = state.scopes[raw.hash];
+                            if (scope) {
+                                scope[sourceName as string] = val;
+                            }
+                        },
+                    });
+                }
+
+                return moduleObj;
+            }
+
+            const instance = Array.isArray(raw) ? [] : {};
             this.idToObject.set(id, instance);
 
             for (const k in raw) {

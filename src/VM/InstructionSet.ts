@@ -312,22 +312,45 @@ export abstract class InstructionSet
 
     protected __op__export(arg: any): void
     {
-        const val  = this.state.pop();
-        const name = this.state.pop();
-    
+        const exportName = this.state.pop();
+        const sourceName = this.state.pop();
         const frame = this.state.frames[this.state.frames.length - 1];
     
-        // If we are in the main scope (no frames) or a frame without export tracking,
-        // we can either throw or ignore. Usually, modules run inside a frame.
-        if (! frame) {
-            return;
+        if (!frame) return;
+    
+        const moduleHash = frame.program.hash;
+        const exports    = frame.exports;
+    
+        // 1. Metadata setup (Same as before)
+        if (!Object.prototype.hasOwnProperty.call(exports, '__vm_meta')) {
+            Object.defineProperty(exports, '__vm_meta', {
+                value: {
+                    hash: moduleHash,
+                    bindings: {} as Record<string, string>
+                },
+                enumerable: false,
+                writable: true,
+                configurable: true
+            });
         }
     
-        // TODO: Add export tracking to frames and modules.
-        //       Exported variables should be tied to the module scope they came from.
-        //       This allows "live" bindings between modules.
+        exports.__vm_meta.bindings[exportName] = sourceName;
     
-        frame.exports[name] = val;
+        // 2. Define Getter AND Setter
+        Object.defineProperty(exports, exportName, {
+            enumerable: true,
+            configurable: true,
+            get: () => {
+                const scope = this.state.scopes[moduleHash];
+                return scope ? scope[sourceName] : undefined;
+            },
+            set: (val: any) => {
+                const scope = this.state.scopes[moduleHash];
+                if (scope) {
+                    scope[sourceName] = val;
+                }
+            }
+        });
     }
 
     protected __op_getProp(arg: any): void
@@ -562,8 +585,6 @@ export abstract class InstructionSet
             throw new Error(`Runtime Error: Class '${name}' extends a non-blueprint value (${parent?.type || 'null'}).`);
         }
     
-        console.log(`Making blueprint '${name}' that extends '${parent ? parent.name : 'null'}, belongs to program #${this.state.currentProgram.hash}'`);
-    
         const blueprint = {
             type:            'Blueprint',
             name:            name,
@@ -725,7 +746,7 @@ export abstract class InstructionSet
             if (this.state.eventQueue.length > 0) {
                 // A. Get the next event
                 const nextEvent = this.state.eventQueue.shift()!;
-                const eventInfo = this.program.references.events[nextEvent.name];
+                const eventInfo =this.program.references.events[nextEvent.name];
     
                 // B. Push Args for the NEXT event
                 for (let i = 0; i < eventInfo.numArgs; i++) {
@@ -753,10 +774,9 @@ export abstract class InstructionSet
         }
     
         if (frame.isModule) {
-            const exports: Record<string, any> = {};
-            for (const [key, value] of Object.entries(frame.exports)) {
-                exports[key] = value;
-            }
+            const exports = {};
+            const descriptors = Object.getOwnPropertyDescriptors(frame.exports);
+            Object.defineProperties(exports, descriptors);
     
             if (frame.moduleName) {
                 this.moduleCache[frame.moduleName] = exports;

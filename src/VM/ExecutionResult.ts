@@ -27,22 +27,16 @@ export interface ExecutionResult
 export type DiagnosticInfo = {
     /**
      * Error message if an error occurred, undefined otherwise.
-     *
-     * @remarks Only set if {@link hasError} is true.
      */
     message: string;
 
     /**
      * A couple of lines of source code indicating where the error originated from, if available.
-     *
-     * @remarks Only set if {@link hasError} is true.
      */
     source?: string;
 
     /**
      * Stack trace at the point of error, if available.
-     *
-     * @remarks Only set if {@link hasError} is true.
      */
     trace?: StackTraceFrame[];
 }
