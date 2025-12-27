@@ -1,3 +1,24 @@
+<p align="center">
+  <a href="https://github.com/haroldiedema/luxlang/actions/workflows/test.yml">
+    <img src="https://github.com/haroldiedema/luxlang/actions/workflows/test.yml/badge.svg" alt="Tests" />
+  </a>
+  <a href="https://bundlephobia.com/package/luxlang">
+    <img src="https://img.shields.io/bundlephobia/minzip/luxlang" alt="Bundle Size" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/luxlang">
+    <img src="https://img.shields.io/npm/v/luxlang?color=red" alt="NPM Version" />
+  </a>
+  <a href="https://esm.sh/luxlang">
+    <img src="https://img.shields.io/badge/esm.sh-luxlang-f39c12" alt="esm.sh" />
+  </a>
+  <a href="https://unpkg.com/browse/luxlang/">
+    <img src="https://img.shields.io/badge/unpkg-luxlang-3498db" alt="unpkg" />
+  </a>
+</p>
+
 # Lux Language 📜
 
 **Lux Language** (luxlang) is a lightweight, indentation-based scripting
