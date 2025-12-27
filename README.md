@@ -93,13 +93,13 @@ print(x)
 const program = Compiler.compile(source);
 
 // 2. Create a VM.
-const vm = new VM(program, {
+const vm = new VirtualMachine(program, {
     budget: 100, // Instructions per .run() invocation.
     throwOnError: true, // Throw on runtime errors.
     functions: {
         // Create a "native" print function that can be called
         // from any script.
-        print: (args) => {
+        print: (...args: any[]) => {
             console.log(...args);
         }
     },
