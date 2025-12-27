@@ -13,15 +13,16 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-node@v1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
       - name: Update npm
         run: npm install -g npm@latest
       - name: Install build dependencies
         run: npm ci
-      - name: Sync Version with Tag
+      - name: Sync Version with Repository Tag
         run: |
          TAG_NAME=${{ github.ref_name }}
          CLEAN_VERSION=${TAG_NAME#v}
@@ -29,15 +30,7 @@ jobs:
          npm version $CLEAN_VERSION --no-git-tag-version --allow-same-version
       - name: Building package
         run: npm run build
-
-  publish-npm:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
+      - name: Testing package
+        run: npm run test
       - name: Publish package
         run: npm publish
