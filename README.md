@@ -1,22 +1,12 @@
 <p align="center">
-  <a href="https://github.com/haroldiedema/luxlang/actions/workflows/test.yml">
-    <img src="https://github.com/haroldiedema/luxlang/actions/workflows/test.yml/badge.svg" alt="Tests" />
-  </a>
-  <a href="https://bundlephobia.com/package/luxlang">
-    <img src="https://img.shields.io/bundlephobia/minzip/luxlang" alt="Bundle Size" />
-  </a>
+  <a href="https://github.com/haroldiedema/luxlang/actions/workflows/test.yml"><img src="https://github.com/haroldiedema/luxlang/actions/workflows/test.yml/badge.svg" alt="Tests" /></a>
+  <a href="https://bundlephobia.com/package/luxlang"><img src="https://img.shields.io/bundlephobia/minzip/luxlang" alt="Bundle Size" /></a>
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/luxlang">
-    <img src="https://img.shields.io/npm/v/luxlang?color=red" alt="NPM Version" />
-  </a>
-  <a href="https://esm.sh/luxlang">
-    <img src="https://img.shields.io/badge/esm.sh-luxlang-f39c12" alt="esm.sh" />
-  </a>
-  <a href="https://unpkg.com/browse/luxlang/">
-    <img src="https://img.shields.io/badge/unpkg-luxlang-3498db" alt="unpkg" />
-  </a>
+  <a href="https://www.npmjs.com/package/luxlang"><img src="https://img.shields.io/npm/v/luxlang?color=red" alt="NPM Version" /></a>
+  <a href="https://esm.sh/luxlang"><img src="https://img.shields.io/badge/esm.sh-luxlang-f39c12" alt="esm.sh" /></a>
+  <a href="https://unpkg.com/browse/luxlang/"><img src="https://img.shields.io/badge/unpkg-luxlang-3498db" alt="unpkg" /></a>
 </p>
 
 # Lux Language 📜
@@ -128,10 +118,10 @@ if (isHalted) {
 Lux is dynamically typed. You don't need to declare types.
 
 ```
-name = "Hero"       # String
-level = 42          # Number
-is_alive = true     # Boolean (true/false)
-nothing = null      # Null
+name = "Hero"       // String
+level = 42          // Number
+is_alive = true     // Boolean (true/false)
+nothing = null      // Null
 ```
 
 ### Data Structures
@@ -143,13 +133,13 @@ Arrays are ordered lists of values.
 ```
 inventory = ["sword", "shield", "potion"]
 
-# Access
-print(inventory[0])      # "sword"
+// Access
+print(inventory[0])      // "sword"
 
-# Modify
+// Modify
 inventory[1] = "broken shield"
 
-# Nested
+// Nested
 matrix = [[1, 0], [0, 1]]
 ```
 
@@ -166,13 +156,13 @@ player = {
     }
 }
 
-# Dot Notation
-print(player.name)       # "Arthur"
+// Dot Notation
+print(player.name)       // "Arthur"
 player.stats.hp = 90
 
-# Bracket Notation (Strings)
+// Bracket Notation (Strings)
 key = "name"
-print(player[key])       # "Arthur"
+print(player[key])       // "Arthur"
 ```
 
 ### Control Flow
@@ -227,7 +217,7 @@ fn calculate_damage(base, armor):
     return base - (armor / 2)
 
 dmg = calculate_damage(50, 10)
-print(dmg) # 45
+print(dmg) // 45
 ```
 
 ### Blueprints
@@ -247,7 +237,7 @@ blueprint Enemy:
 // Create an instance:
 goblin = new Enemy()
 goblin.attack(player)
-print(goblin.hp)  # 100
+print(goblin.hp) // 100
 ```
 
 #### Primary vs Secondary Constructors
@@ -309,7 +299,7 @@ Lux supports array and object comprehensions for concise data transformations.
 ```
 squares = [x * x for x in 0..10]
 
-print(squares)  # [0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
+print(squares) // [0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
 ```
 
 #### Object Comprehensions
@@ -331,7 +321,7 @@ handler completes, execution resumes where it left off.
 ```
 while(true):
     print("Patrolling...")
-    wait(1) // Assuming "wait" is a native function that yields for 1 second
+    wait 1000 // Waits for 1000 ms (remember to keep ticking the VM by calling .run())
 
 on "damage_taken" (amount):
     this.hp = this.hp - amount
@@ -350,6 +340,102 @@ crash to ensure user-defined scripts can safely handle optional events.
 
 Note that event hooks must be defined in the main script body, not inside
 functions or blueprints or imported modules.
+
+
+## Reusable Modules
+
+Lux supports modules for code reuse. You can import/export functions and variables.
+
+```
+// utils.lux
+public PI = 3.14159
+
+public fn greet(name):
+    print("Hello, " + name + "!")
+```
+
+```
+// main.lux
+import "utils"
+
+print(utils.PI)          # 3.14159
+utils.greet("Player")    # "Hello, Player!"
+```
+
+Modules are lively linked, so changes to imported variables are reflected across modules.
+
+Modules can be defined in the VirtualMachine two ways:
+
+1. As compiled programs, or;
+2. As native objects (JavaScript objects with functions and properties).
+
+```typescript
+import { Compiler, VirtualMachine } from 'luxlang';
+
+const utilsModule = {
+    PI: 3.14159,
+    greet: (...args: any) => {
+        const [name] = args;
+        console.log("Hello, " + name + "!");
+    },
+    print: (...args: any[]) => console.log(...args),
+};
+
+const luxModule = Compiler.compile(`
+public fn power(base, exp):
+    result = 1
+    for i in 0..exp:
+        result = result * base
+    return result
+`);
+
+const mainProgram = Compiler.compile(`
+import "utils"
+import "lux"
+
+utils.print(utils.PI)        // 3.14159
+utils.greet("Player")        // "Hello, Player!"
+utils.print(lux.power(2, 3)) // 8
+`);
+
+const vm = new VirtualMachine(mainProgram, {
+    budget: Infinity, // Default - run all instructions to completion.
+    moduleCache: {
+        "utils": utilsModule,
+        "lux": luxModule
+    }
+});
+
+// If budget is undefined, the VM runs to completion in one go.
+vm.run();
+```
+
+Modules can also be resolved dynamically by providing a custom module resolver
+function when creating the VM. You can then share a module cache between
+multiple instances of Virtual Machines or load/compile modules on demand.
+
+```typescript
+import { Compiler, Program, VirtualMachine } from 'luxlang';
+
+const myModuleCache: Record<string, Program> = {
+    'myModule': Compiler.compile(`public value = 42`, 'myModule'),
+    // Add more pre-compiled modules as needed
+};
+
+const resolveModule = (moduleName: string): Program | undefined => {
+    return myModuleCache[moduleName];
+}
+
+const vm1 = new VirtualMachine(mainProgram1, {
+    budget: Infinity,
+    resolveModule,
+});
+
+const vm2 = new VirtualMachine(mainProgram1, {
+    budget: Infinity,
+    resolveModule,
+});
+```
 
 ---
 
@@ -429,28 +515,6 @@ newVm.load(savedState);
 
 newVm.run(deltaTime); // Resumes from where it left off
 ```
-
-## Reusable Modules
-
-Lux supports modules for code reuse. You can import/export functions and variables.
-
-```
-// utils.lux
-public PI = 3.14159
-
-public fn greet(name):
-    print("Hello, " + name + "!")
-```
-
-```
-// main.lux
-import "utils"
-
-print(utils.PI)          # 3.14159
-utils.greet("Player")    # "Hello, Player!"
-```
-
-Modules are lively linked, so changes to imported variables are reflected across modules.
 
 ## Security
 
