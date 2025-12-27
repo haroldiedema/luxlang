@@ -34,7 +34,7 @@ complete list of fixture files in Markdown format that demonstrate the language 
 
 > NOTE: Lux does not include a "standard library" by default. Instead, you can
 > bind your own native functions to the VM that interact with your engine or
-> application. See [Engine Integration](#-engine-integration) for more details.
+> application. See [Engine Integration](#engine-integration) for more details.
 
 ## 🛠️ Architecture
 
@@ -208,9 +208,9 @@ blueprint Enemy:
     fn attack(target):
         target.hp = target.hp - this.damage
         print("Attacked for " + this.damage)
-        
+
 // Create an instance:
-goblin = Enemy()
+goblin = new Enemy()
 goblin.attack(player)
 print(goblin.hp)  # 100
 ```
@@ -241,7 +241,7 @@ blueprint Enemy:
         this.name = name
         print("Enemy " + this.name + " spawned.")
         
-goblin = Enemy("Goblin") // "Enemy Goblin spawned."
+goblin = new Enemy("Goblin") // "Enemy Goblin spawned."
 ```
 
 > NOTE: Only one constructor type can be used per blueprint.
@@ -261,7 +261,7 @@ blueprint NPC(name, dialogue) extends Actor(name):
     fn speak():
         print(this.name + " says: " + this.dialogue)
         
-villager = NPC("Bob", "Welcome to our village!")
+villager = new NPC("Bob", "Welcome to our village!")
 villager.speak()  # "Bob says: Welcome to our village!"
 ```
 
@@ -282,6 +282,7 @@ print(squares)  # [0, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100]
 ```
 nums = [1, 2, 3]
 squared = { n: n * n for n in nums }
+
 print(squared["2"]) // 4
 ```
 
