@@ -16,10 +16,28 @@
   },
   "homepage": "https://github.com/haroldiedema/lux-lang",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "browser": {
+        "import": "./dist/browser.mjs",
+        "types": "./dist/browser.d.ts"
+      },
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.mjs"
+      },
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "generate": "ts-node scripts/generate.ts",
-    "build": "npm run generate && tsc",
+    "build": "npm run generate && tsup",
     "watch:ts": "tsc --watch",
     "watch:gen": "nodemon --watch src/VM/Instructions -e ts --exec \"npm run generate\"",
     "watch": "concurrently \"npm run watch:gen\" \"npm run watch:ts\"",
@@ -32,6 +50,7 @@
     "concurrently": "^9.2.1",
     "nodemon": "^3.1.11",
     "ts-node": "^10.9.2",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16"
   }

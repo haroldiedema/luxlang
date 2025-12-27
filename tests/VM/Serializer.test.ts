@@ -23,12 +23,12 @@ while i < 10:
 
 // Phase 2: Post-Resume
 // If the VM resumed correctly, we should execute this.
-store.count = 20
+store.count = store.count + 10
 out("Phase 2: " + store.count)
         `;
 
         // 2. The Dependency Module
-        // Simple module with a public variable.
+        //    A simple module with a public variable.
         const modules = {
             'store': Compiler.compile(`public count = 0`, `store`),
         };
@@ -54,10 +54,8 @@ out("Phase 2: " + store.count)
         // 4. Serialize
         const serialized = vm.save();
 
-        console.log(serialized);
-
         // 5. Setup VM 2 (The "Resumer")
-        // Completely new instance, knowing nothing of the previous run.
+        //    Completely new instance, knowing nothing of the previous run.
         const vm2 = new VirtualMachine(Compiler.compile(main), {
             budget:        500,
             resolveModule: (name: string) => modules[name],

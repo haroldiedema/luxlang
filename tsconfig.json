@@ -15,8 +15,8 @@
     "noUnusedParameters": false,
     "noUnusedLocals": false,
 
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false,
 
     "baseUrl": ".",
   },
