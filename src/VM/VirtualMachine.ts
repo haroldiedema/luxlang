@@ -71,6 +71,10 @@ export class VirtualMachine extends InstructionSet
      */
     public run(deltaTime: number = 16.6): Readonly<ExecutionResult>
     {
+        if (this.state.isAwaitingPromise) {
+            return this.result;
+        }
+
         // Reset execution result.
         this.result.isCompleted     = false;
         this.result.isSleeping      = false;

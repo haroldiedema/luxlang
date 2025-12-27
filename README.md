@@ -311,6 +311,33 @@ squared = { n: n * n for n in nums }
 print(squared["2"]) // 4
 ```
 
+### Timers
+
+Sometimes you want to pause execution for a certain amount of time. Lux
+provides a built-in `wait` keyword that pauses execution for the specified
+number of milliseconds.
+
+The VM must be ticked in your game loop or at a regular interval and the
+delta time between ticks must be passed to the `run` method for this to work.
+
+```
+print("Waiting for 2 seconds...")
+wait 2000  // Waits for 2000 ms (2 seconds)
+print("Done waiting!")
+```
+
+```typescript
+let lastTime = performance.now();
+
+function gameLoop() {
+    const now = performance.now();
+    const deltaTime = now - lastTime;
+    lastTime = now;
+    
+    vm.run(deltaTime); // Pass delta time to VM
+}
+```
+
 ### Event Hooks
 
 The special "on" keyword allows you to define event handlers that can be
@@ -515,6 +542,44 @@ newVm.load(savedState);
 
 newVm.run(deltaTime); // Resumes from where it left off
 ```
+
+### Awaiting Promises
+
+The VM ticks _synchronously_, but you can integrate asynchronous operations
+by leveraging native functions that return Promises. The VM will pause
+execution until the Promise resolves, allowing you to perform async tasks like
+fetching data, waiting for user input or waiting for an AI calculation to complete.
+
+Take the following `move` native function as an example:
+```
+print("Starting move...")
+move(10) // Move the entity 10 units over time.
+print("Move completed!")
+```
+
+```typescript
+vm.registerNative("move", async (args) => {
+    const [distance] = args;
+    return new Promise((resolve) => {
+        // Simulate an asynchronous movement operation.
+        setTimeout(() => {
+            playerEntity.position.x += distance;
+            resolve(null); // Resolve when done.
+        }, 1000); // Move takes 1 second.
+    });
+});
+
+// In your game loop
+function gameLoop() {
+    const isFinished = vm.run(deltaTime);
+    
+    requestAnimationFrame(gameLoop);
+}
+
+```
+
+The VM will automatically pause execution when it encounters the `move` call
+and will only resume once the Promise returned by the native function resolves.
 
 ## Security
 

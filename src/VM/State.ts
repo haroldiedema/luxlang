@@ -63,6 +63,13 @@ export class State
      */
     public wallTime: number = 0;
 
+    /**
+     * A promise that the VM is currently waiting on, or NULL if not waiting.
+     *
+     * @type {boolean}
+     */
+    public isAwaitingPromise: boolean = false;
+
     private _program: Program;
     private _programs: Record<string, Program> = {};
     private _stack: any[]                      = [];

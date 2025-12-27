@@ -47,7 +47,7 @@ export abstract class InstructionSet
             return [budget, false];
         }
 
-        while (budget > 0 && ! state.isHalted && ! state.isSleeping) {
+        while (budget > 0 && ! state.isHalted && ! state.isSleeping && ! state.isAwaitingPromise) {
             budget--;
 
             // Note: Don't use the cached version of program/instructions here,
@@ -160,6 +160,21 @@ export abstract class InstructionSet
             }
     
             const result = this.natives.get(operand.name)!(...args);
+    
+            if (result instanceof Promise) {
+                this.state.isAwaitingPromise = true;
+    
+                result.then((resolved) => {
+                    this.state.push(resolved ?? null);
+                    this.state.isAwaitingPromise = false;
+                }).catch((e) => {
+                    this.state.isAwaitingPromise = false;
+                    throw e;
+                });
+    
+                return;
+            }
+    
             this.state.push(result ?? null);
             return;
         }

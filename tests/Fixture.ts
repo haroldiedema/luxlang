@@ -1,8 +1,8 @@
-import fs                                      from 'node:fs';
-import path                                    from 'node:path';
-import { describe, expect, it }                from 'vitest';
-import { Compiler, VirtualMachine }            from '../dist/index.js';
-import type { Program, VirtualMachineOptions } from '../dist/index.js';
+import fs                                                       from 'node:fs';
+import path                                                     from 'node:path';
+import { describe, expect, it }                                 from 'vitest';
+import { Compiler, VirtualMachine }                             from '../dist/index.js';
+import type { ExecutionResult, Program, VirtualMachineOptions } from '../dist/index.js';
 
 export class Fixture
 {
@@ -85,15 +85,28 @@ export class Fixture
 
             const vm = this.createVirtualMachine();
 
-            if (this.passText) {
-                vm.run();
-                expect(this.output.join('\n'), msg).toEqual(this.passText);
-                return;
+            if (this.options.runCount && typeof this.options.runCount === 'number') {
+                for (let i = 0; i < this.options.runCount - 1; i++) {
+                    expect(vm.run(1000).isCompleted, `The VM should not finish its program on iteration #${i}.`)
+                        .toBe(false);
+                }
             }
 
-            if (this.passJson) {
-                vm.run();
+            let result: ExecutionResult | null = null;
+
+            if (this.passText) {
+                result = vm.run(1000);
+                expect(this.output.join('\n'), msg).toEqual(this.passText);
+            } else if (this.passJson) {
+                result = vm.run(1000);
                 expect(this.output, msg).toEqual(this.passJson);
+            }
+
+            if (result !== null) {
+                if (this.options.expectCompletion) {
+                    expect(result.isCompleted, 'Expected the VM to run to completion.').toBe(true);
+                }
+
                 return;
             }
 
@@ -111,19 +124,22 @@ export class Fixture
                 return this.modules[name] ?? undefined;
             },
             functions:     {
-                'out': (...args: any[]) => {
+                'out':              (...args: any[]) => {
                     this.output.push(...args);
                 },
+                'runAsyncFunction': async (value: any) => {
+                    return Promise.resolve(value);
+                },
             },
-            variables: {
+            variables:     {
                 sandbox: {
-                    a_number: 42,
-                    a_string: "Hello, World!",
+                    a_number:  42,
+                    a_string:  'Hello, World!',
                     a_boolean: true,
                     a_null:    null,
                     an_array:  [1, 2, 3],
-                    an_object: {key: "value"},
-                }
+                    an_object: {key: 'value'},
+                },
             },
             ...options,
             ...this.options,
@@ -131,7 +147,7 @@ export class Fixture
     }
 }
 
-class FixtureParser
+export class FixtureParser
 {
     public static parse(filename: string): FixtureInfo[]
     {
@@ -406,7 +422,7 @@ type FixtureToken = {
     content: any;
 }
 
-type FixtureInfo = {
+export type FixtureInfo = {
     /**
      * The title of the test fixture.
      *

@@ -109,7 +109,7 @@ export abstract class InstructionSet
             return [budget, false];
         }
 
-        while (budget > 0 && ! state.isHalted && ! state.isSleeping) {
+        while (budget > 0 && ! state.isHalted && ! state.isSleeping && ! state.isAwaitingPromise) {
             budget--;
 
             // Note: Don't use the cached version of program/instructions here,

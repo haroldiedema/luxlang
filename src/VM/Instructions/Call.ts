@@ -26,6 +26,21 @@ export function call(state: State, natives: Map<string, any>, arg: any): void
         }
 
         const result = natives.get(operand.name)!(...args);
+
+        if (result instanceof Promise) {
+            state.isAwaitingPromise = true;
+
+            result.then((resolved) => {
+                state.push(resolved ?? null);
+                state.isAwaitingPromise = false;
+            }).catch((e) => {
+                state.isAwaitingPromise = false;
+                throw e;
+            });
+
+            return;
+        }
+
         state.push(result ?? null);
         return;
     }
