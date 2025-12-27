@@ -93,10 +93,24 @@ print(x)
 const program = Compiler.compile(source);
 
 // 2. Create a VM.
-const vm = new VM(program);
+const vm = new VM(program, {
+    budget: 100, // Instructions per .run() invocation.
+    throwOnError: true, // Throw on runtime errors.
+    functions: {
+        // Create a "native" print function that can be called
+        // from any script.
+        print: (args) => {
+            console.log(...args);
+        }
+    },
+    variables: {
+        // Initial global variables.
+        initial_value: 42
+    }
+});
 
 // 3. Run. You can call run() on every frame.
-const isHalted = vm.run(100); // Run with a budget of 100 ops
+const isHalted = vm.run(16.6); // Pass delta time in ms.
 
 if (isHalted) {
     console.log("Script finished execution.");
