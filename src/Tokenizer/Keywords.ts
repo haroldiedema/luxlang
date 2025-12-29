@@ -1,6 +1,6 @@
 export const Keywords = [
-    'fn',    // Function declaration: fn <identifier>[.<identifier>...] (<parameters>): \n <body>
-    'on',    // Event hook: on <event> (<parameters>): \n <body>
+    'fn',
+    'on',
     'if',
     'else',
     'do',
